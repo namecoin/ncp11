@@ -15,7 +15,7 @@ package main
 import (
 	"github.com/miekg/pkcs11"
 
-	"github.com/namecoin/ncp11/pkcs11mod"
+	"github.com/namecoin/pkcs11mod"
 )
 
 func init() {
