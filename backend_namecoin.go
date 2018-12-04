@@ -24,22 +24,6 @@ import (
 	"github.com/namecoin/nctls.so/pkcs11mod"
 )
 
-// These are NSS-specific pkcs11 constants.
-// TODO: check with miekg whether he'd accept a PR to add them to miekg/pkcs11.
-const (
-	CKA_TRUST_SERVER_AUTH      uint = 0xce536358
-	CKA_TRUST_CLIENT_AUTH      uint = 0xce536359
-	CKA_TRUST_CODE_SIGNING     uint = 0xce53635a
-	CKA_TRUST_EMAIL_PROTECTION uint = 0xce53635b
-	CKA_TRUST_STEP_UP_APPROVED uint = 0xce536360
-	CKA_CERT_SHA1_HASH         uint = 0xce5363b4
-	CKO_NSS_TRUST              uint = 0xce534353
-	CKT_NSS_TRUSTED            uint = 0xce534351
-	CKT_NSS_TRUSTED_DELEGATOR  uint = 0xce534352
-	CKT_NSS_NOT_TRUSTED        uint = 0xce53435A
-	CKT_NSS_TRUST_UNKNOWN      uint = 0xce534355
-)
-
 type certObject struct {
 	cert *x509.Certificate
 	class uint
@@ -255,31 +239,31 @@ func (b BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.Ob
 			results[i] = pkcs11.NewAttribute(attr.Type, cert.RawSubject)
 		} else if attr.Type == pkcs11.CKA_ID {
 			results[i] = pkcs11.NewAttribute(attr.Type, "0")
-		} else if attr.Type == CKA_TRUST_SERVER_AUTH {
+		} else if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH {
 			// CKT_NSS_TRUSTED should be equivalent to the "P"
 			// trust flag in NSS certutil.
 			// TODO: actually test that CKT_NSS_TRUSTED doesn't
 			// allow it to act as a CA.
-			results[i] = pkcs11.NewAttribute(attr.Type, CKT_NSS_TRUSTED)
-		} else if attr.Type == CKA_TRUST_CLIENT_AUTH {
+			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_TRUSTED)
+		} else if attr.Type == pkcs11.CKA_TRUST_CLIENT_AUTH {
 			// CKT_NSS_NOT_TRUSTED should be equivalent to
 			// blacklisting the cert.
 			// TODO: actually test that the cert doesn't work for
 			// that purpose.
-			results[i] = pkcs11.NewAttribute(attr.Type, CKT_NSS_NOT_TRUSTED)
-		} else if attr.Type == CKA_TRUST_CODE_SIGNING {
+			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+		} else if attr.Type == pkcs11.CKA_TRUST_CODE_SIGNING {
 			// CKT_NSS_NOT_TRUSTED should be equivalent to
 			// blacklisting the cert.
 			// TODO: actually test that the cert doesn't work for
 			// that purpose.
-			results[i] = pkcs11.NewAttribute(attr.Type, CKT_NSS_NOT_TRUSTED)
-		} else if attr.Type == CKA_TRUST_EMAIL_PROTECTION {
+			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+		} else if attr.Type == pkcs11.CKA_TRUST_EMAIL_PROTECTION {
 			// CKT_NSS_NOT_TRUSTED should be equivalent to
 			// blacklisting the cert.
 			// TODO: actually test that the cert doesn't work for
 			// that purpose.
-			results[i] = pkcs11.NewAttribute(attr.Type, CKT_NSS_NOT_TRUSTED)
-		} else if attr.Type == CKA_TRUST_STEP_UP_APPROVED {
+			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+		} else if attr.Type == pkcs11.CKA_TRUST_STEP_UP_APPROVED {
 			// According to "certutil --help", "make step-up cert"
 			// is the description of the "g" trust attribute.
 			// According to the NSS "CERT_DecodeTrustString"
@@ -293,7 +277,7 @@ func (b BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.Ob
 			// Mercurial repo, all of the CKBI CA's have this
 			// attribute set to false.
 			results[i] = pkcs11.NewAttribute(attr.Type, false)
-		} else if attr.Type == CKA_CERT_SHA1_HASH {
+		} else if attr.Type == pkcs11.CKA_CERT_SHA1_HASH {
 			// Yes, NSS is a pile of fail and uses SHA1 to identify
 			// certificates.  They should probably fix this in the
 			// future.
@@ -491,7 +475,7 @@ func (s *session) lookupCerts(dest chan *certObject) {
 
 		dest <- &certObject{
 			cert: cert,
-			class: CKO_NSS_TRUST,
+			class: pkcs11.CKO_NSS_TRUST,
 		}
 	}
 
@@ -522,7 +506,7 @@ func certMatchesTemplate(co *certObject, template []*pkcs11.Attribute) bool {
 				continue
 			}
 
-			if templateClass != pkcs11.CKO_CERTIFICATE && templateClass != CKO_NSS_TRUST {
+			if templateClass != pkcs11.CKO_CERTIFICATE && templateClass != pkcs11.CKO_NSS_TRUST {
 				log.Printf("Template contains unknown CKA_CLASS %v\n", templateClass)
 			}
 
