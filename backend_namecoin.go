@@ -240,11 +240,55 @@ func (b BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.Ob
 		} else if attr.Type == pkcs11.CKA_ID {
 			results[i] = pkcs11.NewAttribute(attr.Type, "0")
 		} else if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH {
-			// CKT_NSS_TRUSTED should be equivalent to the "P"
-			// trust flag in NSS certutil.
-			// TODO: actually test that CKT_NSS_TRUSTED doesn't
-			// allow it to act as a CA.
-			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_TRUSTED)
+			if strings.HasSuffix(cert.Subject.CommonName, " Root CA") {
+				// This is a root CA; it's used as a trust
+				// anchor.
+
+				// CKT_NSS_TRUSTED_DELEGATOR should be
+				// equivalent to the "C" trust flag in NSS
+				// certutil.
+				// TODO: Actually test that it can't be used as
+				// an end-entity cert.
+
+				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_TRUSTED_DELEGATOR)
+			} else if strings.HasSuffix(cert.Subject.CommonName, " TLD CA") {
+				// This is a CA that has a name constraint
+				// whitelisting a specific TLD.
+
+				// This cert isn't a trust anchor; it's instead
+				// signed by a root CA.
+
+				// CKT_NSS_MUST_VERIFY_TRUST indicates that
+				// it should never be used as a trust anchor,
+				// but also isn't blacklisted.
+				// TODO: Actually test that it behaves this
+				// way.
+
+				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_MUST_VERIFY_TRUST)
+			} else if strings.HasSuffix(cert.Subject.CommonName, " Domain CA") {
+				// This is a CA that has a name constraint
+				// whitelisting a specific domain name.
+
+				// This cert isn't a trust anchor; it's instead
+				// signed by a TLD CA or a root CA.
+
+				// CKT_NSS_MUST_VERIFY_TRUST indicates that
+				// it should never be used as a trust anchor,
+				// but also isn't blacklisted.
+				// TODO: Actually test that it behaves this
+				// way.
+
+				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_MUST_VERIFY_TRUST)
+			} else {
+				// This is an end-entity cert.
+
+				// CKT_NSS_TRUSTED should be equivalent to the
+				// "P" trust flag in NSS certutil.
+				// TODO: actually test that CKT_NSS_TRUSTED
+				// doesn't allow it to act as a CA.
+
+				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_TRUSTED)
+			}
 		} else if attr.Type == pkcs11.CKA_TRUST_CLIENT_AUTH {
 			// CKT_NSS_NOT_TRUSTED should be equivalent to
 			// blacklisting the cert.
