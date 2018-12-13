@@ -31,6 +31,10 @@ type certObject struct {
 
 type session struct {
 	backend *BackendNamecoin
+	slotID uint
+	ckbiSessionHandle pkcs11.SessionHandle
+	isDistrustSlot bool
+	isRestrictSlot bool
 	certs chan *certObject
 	domain string
 	template []*pkcs11.Attribute
@@ -43,34 +47,63 @@ type BackendNamecoin struct {
 	manufacturer string
 	description string
 	version pkcs11.Version
-	slot uint
+	slotPositive uint
+	slotNegativeDistrust []uint // index is Namecoin slot - 1; value is CKBI slot
+	slotNegativeRestrict []uint // index is Namecoin slot - len(slotNegativeDistrust) - 1; value is CKBI slot
 	sessions map[pkcs11.SessionHandle]*session
 	sessionMutex sync.RWMutex // Used for the sessions var
+	ckbiBackend *pkcs11.Ctx
 	enableImpersonateCKBI bool
+	enableDistrustCKBI bool
+	enableRestrictCKBI bool
 }
 
-func NewBackendNamecoin() BackendNamecoin {
-	return BackendNamecoin{
+func NewBackendNamecoin() *BackendNamecoin {
+	return &BackendNamecoin{
 		manufacturer: "Namecoin",
 		description: "Namecoin TLS Certificate Trust",
 		version: pkcs11.Version{0, 0},
-		slot: 0,
+		slotPositive: 0,
 		sessions: map[pkcs11.SessionHandle]*session{},
 		enableImpersonateCKBI: true, // TODO: make this a configurable option
+		enableDistrustCKBI: true, // TODO: make this a configurable option
+		enableRestrictCKBI: true, // TODO: make this a configurable option
 	}
 }
 
-func (b BackendNamecoin) Initialize() error {
+func (b *BackendNamecoin) Initialize() error {
+	if b.enableDistrustCKBI || b.enableRestrictCKBI {
+		if b.ckbiBackend == nil {
+			b.ckbiBackend = pkcs11.New("/usr/lib64/libnssckbi.so")
+			log.Println("Opened proxy CKBI backend")
+		}
+
+		err := b.ckbiBackend.Initialize()
+		if err != nil {
+			log.Printf("Error initializing proxied CKBI backend: %s\n", err)
+			return err
+		}
+		log.Println("Initialized proxy CKBI backend")
+	}
+
 	log.Println("Namecoin pkcs11 backend initialized")
 	return nil
 }
 
-func (b BackendNamecoin) Finalize() error {
+func (b *BackendNamecoin) Finalize() error {
+	if b.enableDistrustCKBI || b.enableRestrictCKBI {
+		err := b.ckbiBackend.Finalize()
+		if err != nil {
+			log.Printf("Error finalizing proxied CKBI backend: %s\n", err)
+			return err
+		}
+	}
+
 	log.Println("Namecoin pkcs11 backend closing")
 	return nil
 }
 
-func (b BackendNamecoin) GetInfo() (pkcs11.Info, error) {
+func (b *BackendNamecoin) GetInfo() (pkcs11.Info, error) {
 	info := pkcs11.Info{
 		CryptokiVersion:    pkcs11.Version{2, 20},
 		ManufacturerID:     b.manufacturer,
@@ -81,15 +114,67 @@ func (b BackendNamecoin) GetInfo() (pkcs11.Info, error) {
 	return info, nil
 }
 
-func (b BackendNamecoin) GetSlotList(tokenPresent bool) ([]uint, error) {
+func (b *BackendNamecoin) GetSlotList(tokenPresent bool) ([]uint, error) {
+	// Only a single positive slot exists.
+	result := []uint{b.slotPositive}
 
-	// Only a single slot exists.
-	return []uint{b.slot}, nil
+	b.slotNegativeDistrust = []uint{}
+	b.slotNegativeRestrict = []uint{}
+
+	if b.enableDistrustCKBI {
+		ckbiDistrustResult, err := b.ckbiBackend.GetSlotList(tokenPresent)
+		if err != nil {
+			return []uint{}, err
+		}
+
+		for _, distrustSlot := range ckbiDistrustResult {
+			b.slotNegativeDistrust = append(b.slotNegativeDistrust, distrustSlot)
+			result = append(result, uint(len(b.slotNegativeDistrust)))
+		}
+	}
+	if b.enableRestrictCKBI {
+		ckbiRestrictResult, err := b.ckbiBackend.GetSlotList(tokenPresent)
+		if err != nil {
+			return []uint{}, err
+		}
+
+		for _, restrictSlot := range ckbiRestrictResult {
+			b.slotNegativeRestrict = append(b.slotNegativeRestrict, restrictSlot)
+			result = append(result, uint(len(b.slotNegativeDistrust) + len(b.slotNegativeRestrict)))
+		}
+	}
+
+	return result, nil
 }
 
-func (b BackendNamecoin) GetSlotInfo(slotID uint) (pkcs11.SlotInfo, error) {
-	if slotID != b.slot {
-		return pkcs11.SlotInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
+func (b *BackendNamecoin) toCKBISlotID(slotID uint) (uint, error) {
+	if slotID == b.slotPositive {
+		return 0, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
+	}
+
+	slotID -= 1
+
+	if slotID < uint(len(b.slotNegativeDistrust)) {
+		return b.slotNegativeDistrust[slotID], nil
+	}
+
+	slotID -= uint(len(b.slotNegativeDistrust))
+
+	if slotID < uint(len(b.slotNegativeRestrict)) {
+		return b.slotNegativeRestrict[slotID], nil
+	}
+
+	return 0, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
+}
+
+func (b *BackendNamecoin) GetSlotInfo(slotID uint) (pkcs11.SlotInfo, error) {
+	if slotID != b.slotPositive {
+		ckbiSlotID, err := b.toCKBISlotID(slotID)
+		if err != nil {
+			return pkcs11.SlotInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
+		}
+
+		return b.ckbiBackend.GetSlotInfo(ckbiSlotID)
 	}
 
 	slotInfo := pkcs11.SlotInfo{
@@ -103,9 +188,14 @@ func (b BackendNamecoin) GetSlotInfo(slotID uint) (pkcs11.SlotInfo, error) {
 	return slotInfo, nil
 }
 
-func (b BackendNamecoin) GetTokenInfo(slotID uint) (pkcs11.TokenInfo, error) {
-	if slotID != b.slot {
-		return pkcs11.TokenInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
+func (b *BackendNamecoin) GetTokenInfo(slotID uint) (pkcs11.TokenInfo, error) {
+	if slotID != b.slotPositive {
+		ckbiSlotID, err := b.toCKBISlotID(slotID)
+		if err != nil {
+			return pkcs11.TokenInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
+		}
+
+		return b.ckbiBackend.GetTokenInfo(ckbiSlotID)
 	}
 
 	tokenInfo := pkcs11.TokenInfo{
@@ -132,24 +222,59 @@ func (b BackendNamecoin) GetTokenInfo(slotID uint) (pkcs11.TokenInfo, error) {
 	return tokenInfo, nil
 }
 
-func (b BackendNamecoin) GetMechanismList(slotID uint) ([]*pkcs11.Mechanism, error) {
+func (b *BackendNamecoin) GetMechanismList(slotID uint) ([]*pkcs11.Mechanism, error) {
 	// Namecoin doesn't implement any mechanisms
 	return []*pkcs11.Mechanism{}, nil
 }
 
 // Only call this while b.sessionMutex is write-locked
-func (b BackendNamecoin) nextAvailableSessionHandle() pkcs11.SessionHandle {
+func (b *BackendNamecoin) nextAvailableSessionHandle() pkcs11.SessionHandle {
 	sessionHandle := pkcs11.SessionHandle(1)
 
-	for _, ok := b.sessions[sessionHandle]; ok; sessionHandle++ {
+	for {
+		_, ok := b.sessions[sessionHandle]
+		if !ok {
+			break
+		}
+		sessionHandle++
 	}
 
 	return sessionHandle
 }
 
-func (b BackendNamecoin) OpenSession(slotID uint, flags uint) (pkcs11.SessionHandle, error) {
-	if slotID != b.slot {
+func (b *BackendNamecoin) ckbiOpenSession(slotID uint, flags uint) (pkcs11.SessionHandle, error) {
+	ckbiSlotID, err := b.toCKBISlotID(slotID)
+	if err != nil {
 		return 0, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
+	}
+
+	ckbiHandle, err := b.ckbiBackend.OpenSession(ckbiSlotID, flags)
+	if err != nil {
+		return 0, err
+	}
+
+	isDistrustSlot := slotID - 1 < uint(len(b.slotNegativeDistrust))
+	isRestrictSlot := !isDistrustSlot
+
+	newSession := session{
+		backend: b,
+		slotID: slotID,
+		ckbiSessionHandle: ckbiHandle,
+		isDistrustSlot: isDistrustSlot,
+		isRestrictSlot: isRestrictSlot,
+	}
+
+	b.sessionMutex.Lock()
+	newSessionHandle := b.nextAvailableSessionHandle()
+	b.sessions[newSessionHandle] = &newSession
+	b.sessionMutex.Unlock()
+
+	return newSessionHandle, nil
+}
+
+func (b *BackendNamecoin) OpenSession(slotID uint, flags uint) (pkcs11.SessionHandle, error) {
+	if slotID != b.slotPositive {
+		return b.ckbiOpenSession(slotID, flags)
 	}
 
 	if flags & pkcs11.CKF_RW_SESSION != 0 {
@@ -161,7 +286,8 @@ func (b BackendNamecoin) OpenSession(slotID uint, flags uint) (pkcs11.SessionHan
 	}
 
 	newSession := session{
-		backend: &b,
+		backend: b,
+		slotID: b.slotPositive,
 	}
 
 	b.sessionMutex.Lock()
@@ -172,9 +298,28 @@ func (b BackendNamecoin) OpenSession(slotID uint, flags uint) (pkcs11.SessionHan
 	return newSessionHandle, nil
 }
 
-func (b BackendNamecoin) CloseSession(sh pkcs11.SessionHandle) error {
+func (b *BackendNamecoin) CloseSession(sh pkcs11.SessionHandle) error {
+	// First we read the CKBI session ID and close the CKBI session...
+
+	b.sessionMutex.RLock()
+	s, sessionExists := b.sessions[sh]
+	b.sessionMutex.RUnlock()
+
+	if !sessionExists {
+		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+	}
+
+	if s.slotID != b.slotPositive {
+		err := b.ckbiBackend.CloseSession(s.ckbiSessionHandle)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Then we delete the session locally.
+
 	b.sessionMutex.Lock()
-	_, sessionExists := b.sessions[sh]
+	_, sessionExists = b.sessions[sh]
 	delete(b.sessions, sh)
 	b.sessionMutex.Unlock()
 
@@ -185,26 +330,43 @@ func (b BackendNamecoin) CloseSession(sh pkcs11.SessionHandle) error {
 	return nil
 }
 
-func (b BackendNamecoin) Login(sh pkcs11.SessionHandle, userType uint, pin string) error {
+func (b *BackendNamecoin) Login(sh pkcs11.SessionHandle, userType uint, pin string) error {
 	return nil
 }
 
-func (b BackendNamecoin) Logout(sh pkcs11.SessionHandle) error {
+func (b *BackendNamecoin) Logout(sh pkcs11.SessionHandle) error {
 	return nil
 }
 
-func (b BackendNamecoin) GetObjectSize(sh pkcs11.SessionHandle, oh pkcs11.ObjectHandle) (uint, error) {
+func (b *BackendNamecoin) GetObjectSize(sh pkcs11.SessionHandle, oh pkcs11.ObjectHandle) (uint, error) {
 	log.Printf("GetObjectSize unimplemented\n")
 	return 0, pkcs11.Error(pkcs11.CKR_FUNCTION_NOT_SUPPORTED)
 }
 
-func (b BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.ObjectHandle, a []*pkcs11.Attribute) ([]*pkcs11.Attribute, error) {
+func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.ObjectHandle, a []*pkcs11.Attribute) ([]*pkcs11.Attribute, error) {
 	b.sessionMutex.RLock()
 	s, sessionExists := b.sessions[sh]
 	b.sessionMutex.RUnlock()
 
 	if !sessionExists {
 		return nil, pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+	}
+
+	// Handle CKBI proxying
+	if s.slotID != b.slotPositive {
+		ckbiResult, err := b.ckbiBackend.GetAttributeValue(s.ckbiSessionHandle, oh, a)
+		if err != nil {
+			return ckbiResult, err
+		}
+
+		for i, attr := range ckbiResult {
+			// Distrust the original CKBI cert
+			if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH && s.isDistrustSlot {
+				*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+			}
+		}
+
+		return ckbiResult, err
 	}
 
 	co := s.objects[oh - 1]
@@ -363,7 +525,20 @@ func (b BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.Ob
 	return results, nil
 }
 
-func (b BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11.Attribute) error {
+func (b *BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11.Attribute) error {
+	b.sessionMutex.RLock()
+	s, sessionExists := b.sessions[sh]
+	b.sessionMutex.RUnlock()
+
+	if !sessionExists {
+		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+	}
+
+	// Handle CKBI proxying
+	if s.slotID != b.slotPositive {
+		return b.ckbiBackend.FindObjectsInit(s.ckbiSessionHandle, temp)
+	}
+
 	var attrTypes []uint
 	recognizedTemplate := false
 	foundName := false
@@ -419,14 +594,6 @@ func (b BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11
 				foundName = true
 			}
 		}
-	}
-
-	b.sessionMutex.RLock()
-	s, sessionExists := b.sessions[sh]
-	b.sessionMutex.RUnlock()
-
-	if !sessionExists {
-		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
 	}
 
 	if foundName {
@@ -495,13 +662,24 @@ func (b BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11
 	return nil
 }
 
-func (b BackendNamecoin) FindObjects(sh pkcs11.SessionHandle, max int) ([]pkcs11.ObjectHandle, bool, error) {
+func (b *BackendNamecoin) FindObjects(sh pkcs11.SessionHandle, max int) ([]pkcs11.ObjectHandle, bool, error) {
 	b.sessionMutex.RLock()
 	s, sessionExists := b.sessions[sh]
 	b.sessionMutex.RUnlock()
 
 	if !sessionExists {
 		return []pkcs11.ObjectHandle{}, false, pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+	}
+
+	// Handle CKBI proxying
+	if s.slotID != b.slotPositive {
+		// TODO: this will do the wrong thing if the application is
+		// using an attribute that the proxy modifies as a component in
+		// the template.  In practice, nothing seems to use
+		// CKA_TRUST_SERVER_AUTH in templates.  However, CKA_VALUE is
+		// used in templates when looking up CKA_NSS_MOZILLA_CA_POLICY.
+		// So this needs to be fixed.
+		return b.ckbiBackend.FindObjects(s.ckbiSessionHandle, max)
 	}
 
 	result := []pkcs11.ObjectHandle{}
@@ -526,8 +704,21 @@ func (b BackendNamecoin) FindObjects(sh pkcs11.SessionHandle, max int) ([]pkcs11
 	return result, false, nil
 }
 
-func (b BackendNamecoin) FindObjectsFinal(sh pkcs11.SessionHandle) error {
+func (b *BackendNamecoin) FindObjectsFinal(sh pkcs11.SessionHandle) error {
 	// TODO: clean up any data created during the FindObjects operation
+
+	b.sessionMutex.RLock()
+	s, sessionExists := b.sessions[sh]
+	b.sessionMutex.RUnlock()
+
+	if !sessionExists {
+		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
+	}
+
+	// Handle CKBI proxying
+	if s.slotID != b.slotPositive {
+		return b.ckbiBackend.FindObjectsFinal(s.ckbiSessionHandle)
+	}
 
 	return nil
 }
