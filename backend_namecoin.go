@@ -30,6 +30,7 @@ type certObject struct {
 }
 
 type session struct {
+	backend *BackendNamecoin
 	certs chan *certObject
 	domain string
 	template []*pkcs11.Attribute
@@ -45,6 +46,7 @@ type BackendNamecoin struct {
 	slot uint
 	sessions map[pkcs11.SessionHandle]*session
 	sessionMutex sync.RWMutex // Used for the sessions var
+	enableImpersonateCKBI bool
 }
 
 func NewBackendNamecoin() BackendNamecoin {
@@ -54,6 +56,7 @@ func NewBackendNamecoin() BackendNamecoin {
 		version: pkcs11.Version{0, 0},
 		slot: 0,
 		sessions: map[pkcs11.SessionHandle]*session{},
+		enableImpersonateCKBI: true, // TODO: make this a configurable option
 	}
 }
 
@@ -157,7 +160,9 @@ func (b BackendNamecoin) OpenSession(slotID uint, flags uint) (pkcs11.SessionHan
 		return 0, pkcs11.Error(pkcs11.CKR_SESSION_PARALLEL_NOT_SUPPORTED)
 	}
 
-	newSession := session{}
+	newSession := session{
+		backend: &b,
+	}
 
 	b.sessionMutex.Lock()
 	newSessionHandle := b.nextAvailableSessionHandle()
@@ -216,10 +221,14 @@ func (b BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.Ob
 		} else if attr.Type == pkcs11.CKA_TOKEN {
 			results[i] = pkcs11.NewAttribute(attr.Type, true)
 		} else if attr.Type == pkcs11.CKA_LABEL {
-			fingerprintArray := sha256.Sum256(cert.Raw)
-			hexFingerprint := strings.ToUpper(hex.EncodeToString(fingerprintArray[:]))
+			if co.class == pkcs11.CKO_NSS_BUILTIN_ROOT_LIST {
+				results[i] = pkcs11.NewAttribute(attr.Type, "Namecoin Builtin Roots")
+			} else {
+				fingerprintArray := sha256.Sum256(cert.Raw)
+				hexFingerprint := strings.ToUpper(hex.EncodeToString(fingerprintArray[:]))
 
-			results[i] = pkcs11.NewAttribute(attr.Type, cert.Subject.CommonName + " " + hexFingerprint)
+				results[i] = pkcs11.NewAttribute(attr.Type, cert.Subject.CommonName + " " + hexFingerprint)
+			}
 		} else if attr.Type == pkcs11.CKA_VALUE {
 			results[i] = pkcs11.NewAttribute(attr.Type, cert.Raw)
 		} else if attr.Type == pkcs11.CKA_CERTIFICATE_TYPE {
@@ -239,6 +248,13 @@ func (b BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.Ob
 			results[i] = pkcs11.NewAttribute(attr.Type, cert.RawSubject)
 		} else if attr.Type == pkcs11.CKA_ID {
 			results[i] = pkcs11.NewAttribute(attr.Type, "0")
+		} else if attr.Type == pkcs11.CKA_NSS_MOZILLA_CA_POLICY {
+			if b.enableImpersonateCKBI {
+				results[i] = pkcs11.NewAttribute(attr.Type, true)
+			} else {
+				log.Println("GetAttributeValue requested CKA_NSS_MOZILLA_CA_POLICY while CKBI impersonation is disabled")
+				results[i] = pkcs11.NewAttribute(attr.Type, false)
+			}
 		} else if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH {
 			if strings.HasSuffix(cert.Subject.CommonName, " Root CA") {
 				// This is a root CA; it's used as a trust
@@ -354,6 +370,8 @@ func (b BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11
 	var domain string
 
 	for _, attr := range temp {
+		attrTypes = append(attrTypes, attr.Type)
+
 		if attr.Type == pkcs11.CKA_ISSUER || attr.Type == pkcs11.CKA_SUBJECT {
 			recognizedTemplate = true
 
@@ -372,13 +390,35 @@ func (b BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11
 			if dn2.SerialNumber == "Namecoin TLS Certificate" {
 				domain = dn2.CommonName
 
-				log.Printf("CommonName: %s\n", domain)
+				log.Printf("Issuer/Subject CommonName: %s\n", domain)
+
+				foundName = true
+			}
+		} else if attr.Type == pkcs11.CKA_VALUE {
+			// Looking up certs by value seems to happen in Firefox
+			// on GNU/Linux when CKBI impersonation is enabled.
+
+			cert, err := x509.ParseCertificate(attr.Value)
+			if err != nil {
+				continue
+			}
+
+			recognizedTemplate = true
+
+			if cert.Subject.SerialNumber == "Namecoin TLS Certificate" {
+				domain = cert.Subject.CommonName
+
+				log.Printf("Value Subject CommonName: %s\n", domain)
+
+				foundName = true
+			} else if cert.Issuer.SerialNumber == "Namecoin TLS Certificate" {
+				domain = cert.Issuer.CommonName
+
+				log.Printf("Value Issuer CommonName: %s\n", domain)
 
 				foundName = true
 			}
 		}
-
-		attrTypes = append(attrTypes, attr.Type)
 	}
 
 	b.sessionMutex.RLock()
@@ -402,29 +442,54 @@ func (b BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11
 		// The cert being queried isn't a Namecoin certificate, so
 		// return an empty list.
 		s.certs = make(chan *certObject)
-		close(s.certs)
+		s.template = temp
+
+		go s.lookupEmptyList(s.certs)
 	} else if len(attrTypes) == 0 {
 		// The application is requesting a complete list of all
 		// Namecoin certificates.  We don't support this use case, so
 		// we'll pretend that no certificates were found.  This variant
 		// seems to show up from pkcs11-dump.
 		s.certs = make(chan *certObject)
-		close(s.certs)
+		s.template = temp
+
+		go s.lookupEmptyList(s.certs)
 	} else if len(attrTypes) == 1 && attrTypes[0] == pkcs11.CKA_CLASS {
 		// Ditto.  This variant seems to show up from Chromium on
 		// GNU/Linux during initial boot.
 		s.certs = make(chan *certObject)
-		close(s.certs)
+		s.template = temp
+
+		go s.lookupEmptyList(s.certs)
 	} else if len(attrTypes) == 2 && attrTypes[0] == pkcs11.CKA_ID && attrTypes[1] == pkcs11.CKA_CLASS {
 		// Ditto.  This variant seems to show up from Chromium on
 		// GNU/Linux during certificate validation.
 
 		s.certs = make(chan *certObject)
-		close(s.certs)
+		s.template = temp
+
+		go s.lookupEmptyList(s.certs)
+	} else if len(attrTypes) == 2 && attrTypes[0] == pkcs11.CKA_VALUE && attrTypes[1] == pkcs11.CKA_CLASS {
+		// This variant seems to legitimately show up from Firefox on
+		// GNU/Linux when CKBI impersonation is enabled, but in such
+		// cases CKA_CLASS is CKO_CERTIFICATE, and the CKA_VALUE
+		// recognition will successfully parse an x509.Certificate,
+		// meaning we won't end up here.  So, if we've landed here,
+		// that means either CKA_CLASS is something unexpected, or the
+		// CKA_VALUE is an invalid certificate.
+
+		log.Printf("FindObjectsInit template includes CKA_VALUE and unknown CKA_CLASS=%v\n", temp[1].Value)
+
+		s.certs = make(chan *certObject)
+		s.template = temp
+
+		go s.lookupEmptyList(s.certs)
 	} else {
 		log.Printf("Unknown FindObjectsInit template types: %v\n", attrTypes)
 		s.certs = make(chan *certObject)
-		close(s.certs)
+		s.template = temp
+
+		go s.lookupEmptyList(s.certs)
 	}
 
 	return nil
@@ -526,6 +591,17 @@ func (s *session) lookupCerts(dest chan *certObject) {
 	close(dest)
 }
 
+func (s *session) lookupEmptyList(dest chan *certObject) {
+	if s.backend.enableImpersonateCKBI {
+		dest <- &certObject{
+			cert: &x509.Certificate{},
+			class: pkcs11.CKO_NSS_BUILTIN_ROOT_LIST,
+		}
+	}
+
+	close(dest)
+}
+
 func certMatchesTemplate(co *certObject, template []*pkcs11.Attribute) bool {
 	cert := co.cert
 
@@ -564,6 +640,13 @@ func certMatchesTemplate(co *certObject, template []*pkcs11.Attribute) bool {
 			}
 
 			if !templateIsToken {
+				return false
+			}
+		} else if attr.Type == pkcs11.CKA_VALUE {
+			templateValue := attr.Value
+			certValue := cert.Raw
+
+			if !bytes.Equal(certValue, templateValue) {
 				return false
 			}
 		} else if attr.Type == pkcs11.CKA_ISSUER {
