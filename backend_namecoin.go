@@ -13,8 +13,10 @@ import (
 	"encoding/pem"
 	"log"
 	"io/ioutil"
+	"math/big"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -53,20 +55,41 @@ type BackendNamecoin struct {
 	sessions map[pkcs11.SessionHandle]*session
 	sessionMutex sync.RWMutex // Used for the sessions var
 	ckbiBackend *pkcs11.Ctx
+	ckbiPath string
+	ckbiRestrictCert *x509.Certificate
+	ckbiRestrictCertPEM string
+	ckbiRestrictPrivPEM string
 	enableImpersonateCKBI bool
 	enableDistrustCKBI bool
 	enableRestrictCKBI bool
 }
 
 func NewBackendNamecoin() *BackendNamecoin {
+	ckbiPath := ""
+
+	// Tor Browser's "start-tor-browser" script sets $HOME to the Tor
+	// Browser directory.  We detect this situation in order to make the
+	// CKBI proxy target the Tor Browser CKBI instead of the system's CKBI.
+	_, torCKBIStatErr := os.Stat(os.Getenv("HOME") + "/libnssckbi.so")
+	if torCKBIStatErr == nil {
+		// Tor Browser detected
+		ckbiPath = os.Getenv("HOME") + "/libnssckbi-namecoin-target.so"
+		log.Printf("Using Tor Browser CKBI: %s", ckbiPath)
+	} else {
+		// Anything other than Tor Browser
+		ckbiPath = "/usr/local/namecoin/libnssckbi-namecoin-target.so"
+		log.Printf("Using system CKBI: %s", ckbiPath)
+	}
+
 	return &BackendNamecoin{
 		manufacturer: "Namecoin",
 		description: "Namecoin TLS Certificate Trust",
 		version: pkcs11.Version{0, 0},
 		slotPositive: 0,
 		sessions: map[pkcs11.SessionHandle]*session{},
+		ckbiPath: ckbiPath, // TODO: make this a configurable option
 		enableImpersonateCKBI: true, // TODO: make this a configurable option
-		enableDistrustCKBI: true, // TODO: make this a configurable option
+		enableDistrustCKBI: false, // TODO: make this a configurable option
 		enableRestrictCKBI: true, // TODO: make this a configurable option
 	}
 }
@@ -74,8 +97,11 @@ func NewBackendNamecoin() *BackendNamecoin {
 func (b *BackendNamecoin) Initialize() error {
 	if b.enableDistrustCKBI || b.enableRestrictCKBI {
 		if b.ckbiBackend == nil {
-			b.ckbiBackend = pkcs11.New("/usr/lib64/libnssckbi.so")
-			log.Println("Opened proxy CKBI backend")
+			b.ckbiBackend = pkcs11.New(b.ckbiPath)
+			if b.ckbiBackend == nil {
+				log.Printf("Failed to open proxy CKBI backend %s", b.ckbiPath)
+				return pkcs11.Error(pkcs11.CKR_FUNCTION_FAILED)
+			}
 		}
 
 		err := b.ckbiBackend.Initialize()
@@ -83,7 +109,10 @@ func (b *BackendNamecoin) Initialize() error {
 			log.Printf("Error initializing proxied CKBI backend: %s\n", err)
 			return err
 		}
-		log.Println("Initialized proxy CKBI backend")
+	}
+
+	if b.enableRestrictCKBI {
+		b.obtainRestrictCA()
 	}
 
 	log.Println("Namecoin pkcs11 backend initialized")
@@ -174,7 +203,21 @@ func (b *BackendNamecoin) GetSlotInfo(slotID uint) (pkcs11.SlotInfo, error) {
 			return pkcs11.SlotInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
 		}
 
-		return b.ckbiBackend.GetSlotInfo(ckbiSlotID)
+		ckbiSlotInfo, err := b.ckbiBackend.GetSlotInfo(ckbiSlotID)
+		if err != nil {
+			return ckbiSlotInfo, err
+		}
+
+		isDistrustSlot := slotID - 1 < uint(len(b.slotNegativeDistrust))
+		isRestrictSlot := !isDistrustSlot
+
+		if isDistrustSlot {
+			ckbiSlotInfo.SlotDescription = "Distrust " + ckbiSlotInfo.SlotDescription
+		} else if isRestrictSlot {
+			ckbiSlotInfo.SlotDescription = "Restrict " + ckbiSlotInfo.SlotDescription
+		}
+
+		return ckbiSlotInfo, nil
 	}
 
 	slotInfo := pkcs11.SlotInfo{
@@ -195,7 +238,21 @@ func (b *BackendNamecoin) GetTokenInfo(slotID uint) (pkcs11.TokenInfo, error) {
 			return pkcs11.TokenInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
 		}
 
-		return b.ckbiBackend.GetTokenInfo(ckbiSlotID)
+		ckbiTokenInfo, err := b.ckbiBackend.GetTokenInfo(ckbiSlotID)
+		if err != nil {
+			return ckbiTokenInfo, err
+		}
+
+		isDistrustSlot := slotID - 1 < uint(len(b.slotNegativeDistrust))
+		isRestrictSlot := !isDistrustSlot
+
+		if isDistrustSlot {
+			ckbiTokenInfo.Label = "Distrust " + ckbiTokenInfo.Label
+		} else if isRestrictSlot {
+			ckbiTokenInfo.Label = "Restrict " + ckbiTokenInfo.Label
+		}
+
+		return ckbiTokenInfo, nil
 	}
 
 	tokenInfo := pkcs11.TokenInfo{
@@ -359,14 +416,83 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 			return ckbiResult, err
 		}
 
+		shouldCrossSign := false
+		originalDER := []byte{}
+		originalTrust := uint(0)
+		crossSignedDER := []byte{}
+		var crossSignedParsed *x509.Certificate
+
+		if s.isRestrictSlot {
+			originalDER, originalTrust, err = s.getCKBIDataToCrossSign(oh)
+			if err != nil {
+				// This will force shouldCrossSign to false
+				originalTrust = 0
+			}
+
+			shouldCrossSign = originalTrust == pkcs11.CKT_NSS_TRUSTED_DELEGATOR
+			if shouldCrossSign {
+				crossSignedDER = b.crossSignCKBI(originalDER)
+				crossSignedParsed, err = x509.ParseCertificate(crossSignedDER)
+				if err != nil {
+					log.Printf("Error parsing cross-signed certificate: %s", err)
+					shouldCrossSign = false
+				}
+			}
+		}
+
 		for i, attr := range ckbiResult {
+			if attr.Type == pkcs11.CKA_LABEL && s.isDistrustSlot {
+				//*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, "Distrust " + string(attr.Value))
+			}
+
 			// Distrust the original CKBI cert
 			if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH && s.isDistrustSlot {
 				*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
 			}
+
+			// Only cross-sign if the original CKBI cert is a trusted root CA for TLS server auth
+			if shouldCrossSign {
+				if attr.Type == pkcs11.CKA_LABEL {
+					// TODO: look into re-enabling this after we have better test tooling.
+					//*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, "Restrict " + string(attr.Value))
+				}
+
+				// Cross-sign the original CKBI cert
+				if attr.Type == pkcs11.CKA_VALUE {
+					*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, crossSignedParsed.Raw)
+				}
+
+				// Use the restrict CA subject as the issuer
+				if attr.Type == pkcs11.CKA_ISSUER {
+					*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, crossSignedParsed.RawIssuer)
+				}
+
+				// Use the serial number from the cross-signed cert
+				if attr.Type == pkcs11.CKA_SERIAL_NUMBER {
+					crossSignedSerialNumber, err := asn1.Marshal(crossSignedParsed.SerialNumber)
+					if err != nil {
+						log.Printf("Error marshaling SerialNumber from cross-signed cert")
+						continue
+					}
+
+					*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, crossSignedSerialNumber)
+				}
+
+				// Use neutral status on the cross-signed cert
+				if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH {
+					*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_MUST_VERIFY_TRUST)
+				}
+
+				// Use the SHA1 hash of the cross-signed cert
+				if attr.Type == pkcs11.CKA_CERT_SHA1_HASH {
+					crossSignedSha1Array := sha1.Sum(crossSignedParsed.Raw)
+
+					*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, crossSignedSha1Array[:])
+				}
+			}
 		}
 
-		return ckbiResult, err
+		return ckbiResult, nil
 	}
 
 	co := s.objects[oh - 1]
@@ -525,6 +651,95 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 	return results, nil
 }
 
+func (s *session) getCKBIDataToCrossSign(oh pkcs11.ObjectHandle) ([]byte, uint, error) {
+	issuerRequest := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_ISSUER, []byte{}),
+		pkcs11.NewAttribute(pkcs11.CKA_SERIAL_NUMBER, []byte{}),
+	}
+	issuerResponse, err := s.backend.ckbiBackend.GetAttributeValue(s.ckbiSessionHandle, oh, issuerRequest)
+	if err != nil {
+		log.Printf("Error getting issuer and serial number to cross-sign: %s", err)
+		return []byte{}, 0, err
+	}
+
+	// issuerResponse is a template that we can use to find the other object.
+
+	err = s.backend.ckbiBackend.FindObjectsInit(s.ckbiSessionHandle, issuerResponse)
+	if err != nil {
+		return []byte{}, 0, err
+	}
+
+	objects, _, err := s.backend.ckbiBackend.FindObjects(s.ckbiSessionHandle, 2)
+	if err != nil {
+		return []byte{}, 0, err
+	}
+
+	err = s.backend.ckbiBackend.FindObjectsFinal(s.ckbiSessionHandle)
+	if err != nil {
+		return []byte{}, 0, err
+	}
+
+	valueRequest := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_VALUE, []byte{}),
+	}
+
+	trustRequest := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_TRUST_SERVER_AUTH, 0),
+	}
+
+	valueResponse := []*pkcs11.Attribute{}
+	trustResponse := []*pkcs11.Attribute{}
+
+	valueSuccess := false
+	trustSuccess := false
+
+	for _, resultObject := range objects {
+		if !valueSuccess {
+			valueResponse, err = s.backend.ckbiBackend.GetAttributeValue(s.ckbiSessionHandle, resultObject, valueRequest)
+			if err == pkcs11.Error(pkcs11.CKR_ATTRIBUTE_TYPE_INVALID) {
+				// Wrong class, not a problem
+			} else if err != nil {
+				log.Printf("Error getting value to cross-sign: %s", err)
+				return []byte{}, 0, err
+			} else {
+				valueSuccess = true
+			}
+		}
+
+		if !trustSuccess {
+			trustResponse, err = s.backend.ckbiBackend.GetAttributeValue(s.ckbiSessionHandle, resultObject, trustRequest)
+			if err == pkcs11.Error(pkcs11.CKR_ATTRIBUTE_TYPE_INVALID) {
+				// Wrong class, not a problem
+			} else if err != nil {
+				log.Printf("Error getting trust to cross-sign: %s", err)
+				return []byte{}, 0, err
+			} else {
+				trustSuccess = true
+			}
+		}
+	}
+
+	if !valueSuccess {
+		log.Printf("Missing value to cross-sign")
+	}
+
+	if !trustSuccess {
+		log.Printf("Missing trust to cross-sign")
+	}
+
+	if !valueSuccess || !trustSuccess {
+		return []byte{}, 0, pkcs11.Error(pkcs11.CKR_FUNCTION_FAILED)
+	}
+
+	trustResult, err := pkcs11mod.BytesToULong(trustResponse[0].Value)
+	if err != nil {
+		log.Printf("Invalid trust to cross-sign")
+		return []byte{}, 0, pkcs11.Error(pkcs11.CKR_FUNCTION_FAILED)
+	}
+
+	return valueResponse[0].Value, trustResult, nil
+}
+
 func (b *BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs11.Attribute) error {
 	b.sessionMutex.RLock()
 	s, sessionExists := b.sessions[sh]
@@ -536,6 +751,55 @@ func (b *BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs1
 
 	// Handle CKBI proxying
 	if s.slotID != b.slotPositive {
+		if s.isRestrictSlot {
+			for i, attr := range temp {
+				if attr.Type == pkcs11.CKA_VALUE {
+					log.Println("Unimplemented: Restrict FindObjectsInit CKA_VALUE")
+				}
+
+				if attr.Type == pkcs11.CKA_ISSUER {
+					var dn1 pkix.RDNSequence
+					if rest, err := asn1.Unmarshal(attr.Value, &dn1); err != nil {
+						log.Printf("Error unmarshaling X.509 issuer: %v\n", err)
+						continue
+					} else if len(rest) != 0 {
+						log.Printf("Error: trailing data after X.509 issuer\n")
+						continue
+					}
+
+					var dn2 pkix.Name
+					dn2.FillFromRDNSequence(&dn1)
+
+					if dn2.SerialNumber == "Namecoin TLS Certificate" && strings.HasSuffix(dn2.CommonName, "TLD Exclusion CA") {
+						if temp[i+1].Type == pkcs11.CKA_SERIAL_NUMBER {
+							originalIssuer, originalSerial := b.originalIssuerAndSerialFromNewSerial(temp[i+1].Value)
+
+							*temp[i] = *pkcs11.NewAttribute(attr.Type, originalIssuer)
+							*temp[i+1] = *pkcs11.NewAttribute(pkcs11.CKA_SERIAL_NUMBER, originalSerial)
+						} else {
+							log.Println("Unable to find serial number to substitute original")
+						}
+					}
+				}
+
+				if attr.Type == pkcs11.CKA_SERIAL_NUMBER {
+					// Technically someone might search by
+					// serial number without issuer (which
+					// would be a problem), but it's
+					// unlikely, so don't log a warning.
+					//log.Println("Unimplemented: Restrict FindObjectsInit CKA_SERIAL_NUMBER")
+				}
+
+				if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH {
+					log.Println("Unimplemented: Restrict FindObjectsInit CKA_TRUST_SERVER_AUTH")
+				}
+
+				if attr.Type == pkcs11.CKA_CERT_SHA1_HASH {
+					log.Println("Unimplemented: Restrict FindObjectsInit CKA_CERT_SHA1_HASH")
+				}
+			}
+		}
+
 		return b.ckbiBackend.FindObjectsInit(s.ckbiSessionHandle, temp)
 	}
 
@@ -673,12 +937,6 @@ func (b *BackendNamecoin) FindObjects(sh pkcs11.SessionHandle, max int) ([]pkcs1
 
 	// Handle CKBI proxying
 	if s.slotID != b.slotPositive {
-		// TODO: this will do the wrong thing if the application is
-		// using an attribute that the proxy modifies as a component in
-		// the template.  In practice, nothing seems to use
-		// CKA_TRUST_SERVER_AUTH in templates.  However, CKA_VALUE is
-		// used in templates when looking up CKA_NSS_MOZILLA_CA_POLICY.
-		// So this needs to be fixed.
 		return b.ckbiBackend.FindObjects(s.ckbiSessionHandle, max)
 	}
 
@@ -717,6 +975,9 @@ func (b *BackendNamecoin) FindObjectsFinal(sh pkcs11.SessionHandle) error {
 
 	// Handle CKBI proxying
 	if s.slotID != b.slotPositive {
+		if s.isRestrictSlot {
+		}
+
 		return b.ckbiBackend.FindObjectsFinal(s.ckbiSessionHandle)
 	}
 
@@ -779,7 +1040,7 @@ func (s *session) lookupCerts(dest chan *certObject) {
 		}
 	}
 
-	close(dest)
+	s.lookupEmptyList(dest)
 }
 
 func (s *session) lookupEmptyList(dest chan *certObject) {
@@ -790,7 +1051,181 @@ func (s *session) lookupEmptyList(dest chan *certObject) {
 		}
 	}
 
+	if s.backend.enableRestrictCKBI {
+		s.backend.obtainRestrictCA()
+
+		dest <- &certObject{
+			cert: s.backend.ckbiRestrictCert,
+			class: pkcs11.CKO_CERTIFICATE,
+		}
+	}
+
 	close(dest)
+}
+
+func (b *BackendNamecoin) obtainRestrictCA() {
+	// If we already have the restriction CA, then we don't need to get it
+	// again.
+	if b.ckbiRestrictCertPEM != "" && b.ckbiRestrictPrivPEM != "" {
+		return
+	}
+
+	var netClient = &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	postArgs := url.Values{}
+
+	response, err := netClient.PostForm("http://127.0.0.1:8080/get-new-negative-ca", postArgs)
+	if err != nil {
+		log.Printf("Error POSTing to get-new-negative-ca API: %s\n", err)
+		return
+	}
+
+	buf, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response from get-new-negative-ca API: %s\n", err)
+		return
+	}
+
+	err = response.Body.Close()
+	if err != nil {
+		log.Printf("Error closing response from get-new-negative-ca API: %s\n", err)
+		return
+	}
+
+	var block *pem.Block
+	for {
+		block, buf = pem.Decode(buf)
+		if block == nil {
+			break
+		}
+
+		if block.Type == "CERTIFICATE" {
+			b.ckbiRestrictCert, err = x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				continue
+			}
+
+			restrictCertPem := pem.EncodeToMemory(&pem.Block{
+				Type: "CERTIFICATE",
+				Bytes: block.Bytes,
+			})
+			b.ckbiRestrictCertPEM = string(restrictCertPem)
+		}
+
+		if block.Type == "EC PRIVATE KEY" {
+			restrictPrivPem := pem.EncodeToMemory(&pem.Block{
+				Type: "EC PRIVATE KEY",
+				Bytes: block.Bytes,
+			})
+			b.ckbiRestrictPrivPEM = string(restrictPrivPem)
+		}
+	}
+}
+
+func (b *BackendNamecoin) crossSignCKBI(in []byte) []byte {
+	inPEM := pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE",
+		Bytes: in,
+	})
+	inPEMString := string(inPEM)
+
+	var netClient = &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	postArgs := url.Values{}
+	postArgs.Set("to-sign", inPEMString)
+	postArgs.Set("signer-cert", b.ckbiRestrictCertPEM)
+	postArgs.Set("signer-key", b.ckbiRestrictPrivPEM)
+
+	response, err := netClient.PostForm("http://127.0.0.1:8080/cross-sign-ca", postArgs)
+	if err != nil {
+		log.Printf("Error POSTing to cert API: %s\n", err)
+		return []byte{}
+	}
+
+	buf, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response from cert API: %s\n", err)
+		return []byte{}
+	}
+
+	err = response.Body.Close()
+	if err != nil {
+		log.Printf("Error closing response from cert API: %s\n", err)
+		return []byte{}
+	}
+
+	var block *pem.Block
+	block, _ = pem.Decode(buf)
+	if block == nil {
+		return []byte{}
+	}
+
+	if block.Type != "CERTIFICATE" {
+		return []byte{}
+	}
+
+	return block.Bytes
+}
+
+func (b *BackendNamecoin) originalIssuerAndSerialFromNewSerial(serial []byte) ([]byte, []byte) {
+	// Yes, we pass a pointer to a pointer to Unmarshal, see https://stackoverflow.com/questions/53139020/why-is-unmarshalling-of-a-der-asn-1-large-integer-limited-to-sequence-in-golang
+	var serialBig *big.Int
+	_, err := asn1.Unmarshal(serial, &serialBig)
+	if err != nil {
+		log.Printf("Error parsing new serial number: %s", err)
+	}
+
+	var netClient = &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	postArgs := url.Values{}
+	postArgs.Set("serial", serialBig.String())
+
+	response, err := netClient.PostForm("http://127.0.0.1:8080/original-from-serial", postArgs)
+	if err != nil {
+		log.Printf("Error POSTing to cert API: %s\n", err)
+		return []byte{}, []byte{}
+	}
+
+	buf, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response from cert API: %s\n", err)
+		return []byte{}, []byte{}
+	}
+
+	err = response.Body.Close()
+	if err != nil {
+		log.Printf("Error closing response from cert API: %s\n", err)
+		return []byte{}, []byte{}
+	}
+
+	var block *pem.Block
+	block, _ = pem.Decode(buf)
+	if block == nil {
+		return []byte{}, []byte{}
+	}
+
+	if block.Type != "CERTIFICATE" {
+		return []byte{}, []byte{}
+	}
+
+	originalCert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return []byte{}, []byte{}
+	}
+
+	originalSerialNumber, err := asn1.Marshal(originalCert.SerialNumber)
+	if err != nil {
+		log.Printf("Error marshaling SerialNumber from original cert")
+		return []byte{}, []byte{}
+	}
+
+	return originalCert.RawIssuer, originalSerialNumber
 }
 
 func certMatchesTemplate(co *certObject, template []*pkcs11.Attribute) bool {
