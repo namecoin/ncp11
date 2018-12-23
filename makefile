@@ -38,6 +38,10 @@ nss-shared-install:
 	./install_nssdb.sh ~/.pki/nssdb
 
 
+# add pkcs11 module to Firefox's NSS database
+nss-firefox-install:
+	./install_nssdb.sh ~/.mozilla/firefox/*.default
+
 all: clean ${NAME} moz-ext
 	@echo now run "${MAKE} all-install" to install all (requires root)
 
