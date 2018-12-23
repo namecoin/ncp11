@@ -44,10 +44,10 @@ Remember to re-copy `libnssckbi.so` whenever NSS is upgraded on your system!
 
 ### Tor Browser
 
-* Make sure that Tor Browser isn't currently running.
-* Rename `libnssckbi.so` in the Tor Browser `Browser` directory to `libnssckbi-namecoin-target.so`.
-* Copy `libnamecoin.so` from ncp11 to the Tor Browser `Browser` directory.
-* Rename `libnamecoin.so` in the Tor Browser `Browser` directory to `libnssckbi.so`.
+1. Make sure that Tor Browser isn't currently running.
+1. Rename `libnssckbi.so` in the Tor Browser `Browser` directory to `libnssckbi-namecoin-target.so`.
+1. Copy `libnamecoin.so` from ncp11 to the Tor Browser `Browser` directory.
+1. Rename `libnamecoin.so` in the Tor Browser `Browser` directory to `libnssckbi.so`.
 
 You can now start Tor Browser.
 
