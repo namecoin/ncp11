@@ -1230,6 +1230,10 @@ func (b *BackendNamecoin) originalIssuerAndSerialFromNewSerial(serial []byte) ([
 
 func certMatchesTemplate(co *certObject, template []*pkcs11.Attribute) bool {
 	cert := co.cert
+	if cert == nil {
+		log.Printf("nil cert couldn't be matched against template\n")
+		return false
+	}
 
 	for _, attr := range template {
 		if attr.Type == pkcs11.CKA_CLASS {
