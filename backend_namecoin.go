@@ -447,7 +447,7 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 
 			// Distrust the original CKBI cert
 			if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH && s.isDistrustSlot {
-				*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+				*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_NOT_TRUSTED))
 			}
 
 			// Only cross-sign if the original CKBI cert is a trusted root CA for TLS server auth
@@ -480,7 +480,7 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 
 				// Use neutral status on the cross-signed cert
 				if attr.Type == pkcs11.CKA_TRUST_SERVER_AUTH {
-					*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_MUST_VERIFY_TRUST)
+					*ckbiResult[i] = *pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_MUST_VERIFY_TRUST))
 				}
 
 				// Use the SHA1 hash of the cross-signed cert
@@ -554,7 +554,7 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 				// TODO: Actually test that it can't be used as
 				// an end-entity cert.
 
-				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_TRUSTED_DELEGATOR)
+				results[i] = pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_TRUSTED_DELEGATOR))
 			} else if strings.HasSuffix(cert.Subject.CommonName, " TLD CA") {
 				// This is a CA that has a name constraint
 				// whitelisting a specific TLD.
@@ -568,7 +568,7 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 				// TODO: Actually test that it behaves this
 				// way.
 
-				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_MUST_VERIFY_TRUST)
+				results[i] = pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_MUST_VERIFY_TRUST))
 			} else if strings.HasSuffix(cert.Subject.CommonName, " Domain CA") {
 				// This is a CA that has a name constraint
 				// whitelisting a specific domain name.
@@ -582,7 +582,7 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 				// TODO: Actually test that it behaves this
 				// way.
 
-				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_MUST_VERIFY_TRUST)
+				results[i] = pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_MUST_VERIFY_TRUST))
 			} else {
 				// This is an end-entity cert.
 
@@ -591,26 +591,26 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 				// TODO: actually test that CKT_NSS_TRUSTED
 				// doesn't allow it to act as a CA.
 
-				results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_TRUSTED)
+				results[i] = pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_TRUSTED))
 			}
 		} else if attr.Type == pkcs11.CKA_TRUST_CLIENT_AUTH {
 			// CKT_NSS_NOT_TRUSTED should be equivalent to
 			// blacklisting the cert.
 			// TODO: actually test that the cert doesn't work for
 			// that purpose.
-			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+			results[i] = pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_NOT_TRUSTED))
 		} else if attr.Type == pkcs11.CKA_TRUST_CODE_SIGNING {
 			// CKT_NSS_NOT_TRUSTED should be equivalent to
 			// blacklisting the cert.
 			// TODO: actually test that the cert doesn't work for
 			// that purpose.
-			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+			results[i] = pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_NOT_TRUSTED))
 		} else if attr.Type == pkcs11.CKA_TRUST_EMAIL_PROTECTION {
 			// CKT_NSS_NOT_TRUSTED should be equivalent to
 			// blacklisting the cert.
 			// TODO: actually test that the cert doesn't work for
 			// that purpose.
-			results[i] = pkcs11.NewAttribute(attr.Type, pkcs11.CKT_NSS_NOT_TRUSTED)
+			results[i] = pkcs11.NewAttribute(attr.Type, uint(pkcs11.CKT_NSS_NOT_TRUSTED))
 		} else if attr.Type == pkcs11.CKA_TRUST_STEP_UP_APPROVED {
 			// According to "certutil --help", "make step-up cert"
 			// is the description of the "g" trust attribute.
