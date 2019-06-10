@@ -178,6 +178,7 @@ func (b *BackendNamecoin) GetSlotList(tokenPresent bool) ([]uint, error) {
 
 func (b *BackendNamecoin) toCKBISlotID(slotID uint) (uint, error) {
 	if slotID == b.slotPositive {
+		log.Printf("toCKBISlotID: slotID == b.slotPositive\n")
 		return 0, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
 	}
 
@@ -193,6 +194,7 @@ func (b *BackendNamecoin) toCKBISlotID(slotID uint) (uint, error) {
 		return b.slotNegativeRestrict[slotID], nil
 	}
 
+	log.Printf("toCKBISlotID: slotID out of bounds\n")
 	return 0, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
 }
 
@@ -200,6 +202,7 @@ func (b *BackendNamecoin) GetSlotInfo(slotID uint) (pkcs11.SlotInfo, error) {
 	if slotID != b.slotPositive {
 		ckbiSlotID, err := b.toCKBISlotID(slotID)
 		if err != nil {
+			log.Printf("GetSlotInfo: CKR_SLOT_ID_INVALID\n")
 			return pkcs11.SlotInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
 		}
 
@@ -235,6 +238,7 @@ func (b *BackendNamecoin) GetTokenInfo(slotID uint) (pkcs11.TokenInfo, error) {
 	if slotID != b.slotPositive {
 		ckbiSlotID, err := b.toCKBISlotID(slotID)
 		if err != nil {
+			log.Printf("GetTokenInfo: CKR_SLOT_ID_INVALID\n")
 			return pkcs11.TokenInfo{}, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
 		}
 
@@ -302,6 +306,7 @@ func (b *BackendNamecoin) nextAvailableSessionHandle() pkcs11.SessionHandle {
 func (b *BackendNamecoin) ckbiOpenSession(slotID uint, flags uint) (pkcs11.SessionHandle, error) {
 	ckbiSlotID, err := b.toCKBISlotID(slotID)
 	if err != nil {
+		log.Printf("ckbiOpenSession: CKR_SLOT_ID_INVALID\n")
 		return 0, pkcs11.Error(pkcs11.CKR_SLOT_ID_INVALID)
 	}
 
@@ -336,9 +341,11 @@ func (b *BackendNamecoin) OpenSession(slotID uint, flags uint) (pkcs11.SessionHa
 
 	if flags & pkcs11.CKF_RW_SESSION != 0 {
 		// only read-only sessions are supported.
+		log.Printf("OpenSession: CKR_TOKEN_WRITE_PROTECTED\n")
 		return 0, pkcs11.Error(pkcs11.CKR_TOKEN_WRITE_PROTECTED)
 	}
 	if flags & pkcs11.CKF_SERIAL_SESSION == 0 {
+		log.Printf("OpenSession: CKR_SESSION_PARALLEL_NOT_SUPPORTED\n")
 		return 0, pkcs11.Error(pkcs11.CKR_SESSION_PARALLEL_NOT_SUPPORTED)
 	}
 
@@ -363,12 +370,14 @@ func (b *BackendNamecoin) CloseSession(sh pkcs11.SessionHandle) error {
 	b.sessionMutex.RUnlock()
 
 	if !sessionExists {
+		log.Printf("CloseSession: CKR_SESSION_HANDLE_INVALID before closing CKBI\n")
 		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
 	}
 
 	if s.slotID != b.slotPositive {
 		err := b.ckbiBackend.CloseSession(s.ckbiSessionHandle)
 		if err != nil {
+			log.Printf("CloseSession: error while closing CKBI\n")
 			return err
 		}
 	}
@@ -381,6 +390,7 @@ func (b *BackendNamecoin) CloseSession(sh pkcs11.SessionHandle) error {
 	b.sessionMutex.Unlock()
 
 	if !sessionExists {
+		log.Printf("CloseSession: CKR_SESSION_HANDLE_INVALID while closing local session\n")
 		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
 	}
 
@@ -406,6 +416,7 @@ func (b *BackendNamecoin) GetAttributeValue(sh pkcs11.SessionHandle, oh pkcs11.O
 	b.sessionMutex.RUnlock()
 
 	if !sessionExists {
+		log.Printf("GetAttributeValue: CKR_SESSION_HANDLE_INVALID\n")
 		return nil, pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
 	}
 
@@ -746,6 +757,7 @@ func (b *BackendNamecoin) FindObjectsInit(sh pkcs11.SessionHandle, temp []*pkcs1
 	b.sessionMutex.RUnlock()
 
 	if !sessionExists {
+		log.Printf("FindObjectsInit: CKR_SESSION_HANDLE_INVALID\n")
 		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
 	}
 
@@ -932,6 +944,7 @@ func (b *BackendNamecoin) FindObjects(sh pkcs11.SessionHandle, max int) ([]pkcs1
 	b.sessionMutex.RUnlock()
 
 	if !sessionExists {
+		log.Printf("FindObjects: CKR_SESSION_HANDLE_INVALID\n")
 		return []pkcs11.ObjectHandle{}, false, pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
 	}
 
@@ -970,6 +983,7 @@ func (b *BackendNamecoin) FindObjectsFinal(sh pkcs11.SessionHandle) error {
 	b.sessionMutex.RUnlock()
 
 	if !sessionExists {
+		log.Printf("FindObjectsFinal: CKR_SESSION_HANDLE_INVALID\n")
 		return pkcs11.Error(pkcs11.CKR_SESSION_HANDLE_INVALID)
 	}
 
