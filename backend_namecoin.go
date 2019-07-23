@@ -67,17 +67,18 @@ type BackendNamecoin struct {
 func NewBackendNamecoin() *BackendNamecoin {
 	ckbiPath := ""
 
-	// Tor Browser's "start-tor-browser" script sets $HOME to the Tor
-	// Browser directory.  We detect this situation in order to make the
-	// CKBI proxy target the Tor Browser CKBI instead of the system's CKBI.
-	_, torCKBIStatErr := os.Stat(os.Getenv("HOME") + "/libnssckbi.so")
+	// Some browsers (e.g. Tor Browser) ship with their own CKBI.  We
+	// detect here whether we've been launched by such a browser, in order
+	// to make the CKBI proxy target the browser-specific CKBI instead of
+	// the system's CKBI.
+	_, torCKBIStatErr := os.Stat(filenameCKBIReplaceSelf)
 	if torCKBIStatErr == nil {
 		// Tor Browser detected
-		ckbiPath = os.Getenv("HOME") + "/libnssckbi-namecoin-target.so"
+		ckbiPath = filenameCKBIReplaceTarget
 		log.Printf("Using Tor Browser CKBI: %s", ckbiPath)
 	} else {
 		// Anything other than Tor Browser
-		ckbiPath = "/usr/local/namecoin/libnssckbi-namecoin-target.so"
+		ckbiPath = filenameCKBIAlongsideTarget
 		log.Printf("Using system CKBI: %s", ckbiPath)
 	}
 
