@@ -2,6 +2,10 @@
 
 package main
 
+import (
+	"os"
+)
+
 var (
 	// Used for Tor Browser.  TODO: Check whether this works on macOS.
 	filenameCKBIReplaceSelf = os.Getenv("HOME") + "/libnssckbi.dylib"
