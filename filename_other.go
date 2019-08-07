@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-const (
+var (
 	// Tor Browser's "start-tor-browser" script on GNU/Linux targets sets
 	// $HOME to the Tor Browser directory, so we check there for a CKBI
 	// library.  This heuristic doesn't work on Windows.

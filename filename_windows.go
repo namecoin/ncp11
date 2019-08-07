@@ -2,7 +2,7 @@
 
 package main
 
-const (
+var (
 	// Tor Browser on Windows targets sets the working directory to the Tor
 	// Browser directory, so we check there for a CKBI library.  It is
 	// unknown whether this heuristic works on other OS's or other
