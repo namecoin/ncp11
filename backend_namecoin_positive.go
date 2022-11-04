@@ -1,0 +1,210 @@
+// ncp11
+// Copyright (C) 2018-2022  Namecoin Developers
+//
+// ncp11 is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 2.1 of the License, or (at your option) any later version.
+//
+// ncp11 is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public
+// License along with ncp11; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+package main
+
+import (
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
+	"encoding/pem"
+	"io"
+	"log"
+	"math/big"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/miekg/pkcs11"
+
+	"github.com/namecoin/pkcs11mod/p11trustmod"
+)
+
+type BackendNamecoinPositive struct {
+}
+
+func NewBackendNamecoinPositive() (p11trustmod.Backend, error) {
+	return &BackendNamecoinPositive{}, nil
+}
+
+func (b *BackendNamecoinPositive) Info() (pkcs11.SlotInfo, error) {
+	slotInfo := pkcs11.SlotInfo{
+		SlotDescription: "Namecoin TLS Positive Certificate Trust",
+		ManufacturerID:  "The Namecoin Project",
+		Flags:           pkcs11.CKF_TOKEN_PRESENT,
+		HardwareVersion: ncp11Version,
+		FirmwareVersion: ncp11Version,
+	}
+
+	return slotInfo, nil
+}
+
+func (b *BackendNamecoinPositive) TokenInfo() (pkcs11.TokenInfo, error) {
+	tokenInfo := pkcs11.TokenInfo{
+		Label:              "Namecoin TLS Pos Cert Trust",
+		ManufacturerID:     "The Namecoin Project",
+		Model:              "ncp11",
+		SerialNumber:       "1",
+		Flags:              pkcs11.CKF_WRITE_PROTECTED,
+		MaxSessionCount:    pkcs11.CK_EFFECTIVELY_INFINITE,
+		SessionCount:       pkcs11.CK_UNAVAILABLE_INFORMATION,
+		MaxRwSessionCount:  pkcs11.CK_UNAVAILABLE_INFORMATION,
+		RwSessionCount:     pkcs11.CK_UNAVAILABLE_INFORMATION,
+		MaxPinLen:          ^uint(0), // highest possible uint
+		MinPinLen:          0,
+		TotalPublicMemory:  pkcs11.CK_UNAVAILABLE_INFORMATION,
+		FreePublicMemory:   pkcs11.CK_UNAVAILABLE_INFORMATION,
+		TotalPrivateMemory: pkcs11.CK_UNAVAILABLE_INFORMATION,
+		FreePrivateMemory:  pkcs11.CK_UNAVAILABLE_INFORMATION,
+		HardwareVersion:    ncp11Version,
+		FirmwareVersion:    ncp11Version,
+		UTCTime:            "",
+	}
+
+	return tokenInfo, nil
+}
+
+func (b *BackendNamecoinPositive) IsBuiltinRootList() (bool, error) {
+	// TODO: make this conditional
+	return true, nil
+}
+
+func (b *BackendNamecoinPositive) IsTrusted() (bool, error) {
+	return true, nil
+}
+
+func (b *BackendNamecoinPositive) QueryCertificate(cert *x509.Certificate) ([]*p11trustmod.CertificateData, error) {
+	results, err := b.QuerySubject(&cert.Subject)
+	if err != nil {
+		return nil, err
+	}
+
+	issuerResults, err := b.QueryIssuerSerial(&cert.Issuer, cert.SerialNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	results = append(results, issuerResults...)
+
+	return results, nil
+}
+
+func (b *BackendNamecoinPositive) QuerySubject(subject *pkix.Name) ([]*p11trustmod.CertificateData, error) {
+	return b.queryPkixName(subject)
+}
+
+func (b *BackendNamecoinPositive) QueryIssuerSerial(issuer *pkix.Name, serial *big.Int) ([]*p11trustmod.CertificateData, error) {
+	return b.queryPkixName(issuer)
+}
+
+func (b *BackendNamecoinPositive) QueryAll() ([]*p11trustmod.CertificateData, error) {
+	results, err := b.queryCommonName("Namecoin Root CA")
+	if err != nil {
+		return nil, err
+	}
+
+	tldCAs, err := b.queryCommonName(".bit TLD CA")
+	if err != nil {
+		return nil, err
+	}
+
+	results = append(results, tldCAs...)
+
+	return results, nil
+}
+
+func (b *BackendNamecoinPositive) queryPkixName(name *pkix.Name) ([]*p11trustmod.CertificateData, error) {
+	if name.SerialNumber == "Namecoin TLS Certificate" {
+		return b.queryCommonName(name.CommonName)
+	}
+
+	return []*p11trustmod.CertificateData{}, nil
+}
+
+func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.CertificateData, error) {
+	var netClient = &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	postArgs := url.Values{}
+	postArgs.Set("domain", name)
+
+	// TODO: Use Unix domain socket
+	response, err := netClient.PostForm("http://127.127.127.127/lookup", postArgs)
+	if err != nil {
+		log.Printf("Error POSTing to cert API: %s\n", err)
+		return []*p11trustmod.CertificateData{}, nil
+	}
+
+	buf, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("Error reading response from cert API: %s\n", err)
+		return []*p11trustmod.CertificateData{}, nil
+	}
+
+	err = response.Body.Close()
+	if err != nil {
+		log.Printf("Error closing response from cert API: %s\n", err)
+		return []*p11trustmod.CertificateData{}, nil
+	}
+
+	results := []*p11trustmod.CertificateData{}
+
+	var block *pem.Block
+	for {
+		block, buf = pem.Decode(buf)
+		if block == nil {
+			break
+		}
+
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			continue
+		}
+
+		certData := &p11trustmod.CertificateData{
+			Certificate: cert,
+		}
+
+		fingerprintArray := sha256.Sum256(cert.Raw)
+		hexFingerprint := strings.ToUpper(hex.EncodeToString(fingerprintArray[:]))
+
+		certData.Label = cert.Subject.CommonName + " " + hexFingerprint
+
+		if name == "Namecoin Root CA" {
+			certData.BuiltinPolicy = true
+			certData.TrustServerAuth = pkcs11.CKT_NSS_TRUSTED_DELEGATOR
+		} else {
+			certData.BuiltinPolicy = false
+			certData.TrustServerAuth = pkcs11.CKT_NSS_MUST_VERIFY_TRUST
+		}
+
+		certData.TrustClientAuth = pkcs11.CKT_NSS_NOT_TRUSTED
+		certData.TrustCodeSigning = pkcs11.CKT_NSS_NOT_TRUSTED
+		certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
+
+		results = append(results, certData)
+	}
+
+	return results, nil
+}
