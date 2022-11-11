@@ -28,6 +28,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -37,10 +38,15 @@ import (
 )
 
 type BackendNamecoinPositive struct {
+	trace          bool
+	traceSensitive bool
 }
 
 func NewBackendNamecoinPositive() (p11trustmod.Backend, error) {
-	return &BackendNamecoinPositive{}, nil
+	return &BackendNamecoinPositive{
+		trace:          os.Getenv("NCP11_TRACE") == "1",
+		traceSensitive: os.Getenv("NCP11_TRACE_SENSITIVE") == "1",
+	}, nil
 }
 
 func (b *BackendNamecoinPositive) Info() (pkcs11.SlotInfo, error) {
@@ -131,6 +137,10 @@ func (b *BackendNamecoinPositive) QueryAll() ([]*p11trustmod.CertificateData, er
 
 func (b *BackendNamecoinPositive) queryPkixName(name *pkix.Name) ([]*p11trustmod.CertificateData, error) {
 	if name.SerialNumber == "Namecoin TLS Certificate" {
+		if b.trace && b.traceSensitive {
+			log.Printf("ncp11: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", name.CommonName)
+		}
+
 		return b.queryCommonName(name.CommonName)
 	}
 
@@ -145,22 +155,26 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 	postArgs := url.Values{}
 	postArgs.Set("domain", name)
 
+	if b.trace && b.traceSensitive {
+		log.Printf("ncp11: Querying Encaya for: %s\n", name)
+	}
+
 	// TODO: Use Unix domain socket
 	response, err := netClient.PostForm("http://127.127.127.127/lookup", postArgs)
 	if err != nil {
-		log.Printf("Error POSTing to cert API: %s\n", err)
+		log.Printf("ncp11: Error POSTing to Encaya: %s\n", err)
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
 	buf, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Printf("Error reading response from cert API: %s\n", err)
+		log.Printf("ncp11: Error reading response from Encaya: %s\n", err)
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
 	err = response.Body.Close()
 	if err != nil {
-		log.Printf("Error closing response from cert API: %s\n", err)
+		log.Printf("ncp11: Error closing response from Encaya: %s\n", err)
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
