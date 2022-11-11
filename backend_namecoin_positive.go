@@ -205,7 +205,10 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 
 		certData.Label = cert.Subject.CommonName + " " + hexFingerprint
 
-		if name == "Namecoin Root CA" {
+		// TODO: Figure out why NSS rejects the certificate chain if we only
+		// mark the root CA as trusted, then stop doing that.
+		// TODO: Handle Subject CommonName and Issuer CommonName differently.
+		if name == "Namecoin Root CA" || name == ".bit TLD CA" {
 			certData.BuiltinPolicy = true
 			certData.TrustServerAuth = pkcs11.CKT_NSS_TRUSTED_DELEGATOR
 		} else {
