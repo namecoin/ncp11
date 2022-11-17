@@ -15,26 +15,19 @@
 // License along with ncp11; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 
-// Build with this makefile:
-/*
-NAME ?= 'libnamecoin.so'
-.PHONY: ${NAME}
-${NAME}:
-	CGO_ENABLED=1 go build -buildmode c-shared -o ${NAME}
-clean:
-    rm libnamecoin.h libnamecoin.so
-*/
-
 package main
 
 import (
-	"github.com/namecoin/pkcs11mod/p11mod"
+	"github.com/miekg/pkcs11/p11"
+
+	"github.com/namecoin/pkcs11mod/p11trustmod"
 )
 
-func init() {
-	module, err := NewModuleNamecoin()
+func NewSlotNamecoinPositive() (p11.Slot, error) {
+	backend, err := NewBackendNamecoinPositive()
+	if err != nil {
+		return nil, err
+	}
 
-	p11mod.SetBackend(module, err)
+	return p11trustmod.Slot(backend, 0), nil
 }
-
-func main() {}
