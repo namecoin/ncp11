@@ -1,0 +1,257 @@
+# Attention: if you submit an improvement for a Namecoin Cirrus config, please
+# file a GitHub issue about it at the namecoin/meta repo, so that we can make
+# sure it propagates to all the other Namecoin repos.  Thanks!
+
+task:
+  name: ShellCheck
+  container:
+    image: fedora:latest
+    cpu: 1
+    memory: 1G
+  install_script: dnf install -y ShellCheck
+  lint_script: bash testdata/shellcheck.bash
+
+task:
+  name: "Compile Go $GO_VERSION $GOOS $GOARCH$MODULES_NAME"
+  alias: Compile
+  container:
+    image: golang:$GO_VERSION
+    cpu: 1
+    memory: 1G
+  path_script:
+    - source testdata/move_to_gopath.bash
+  matrix:
+    - env:
+        GOOS: "linux"
+        GOARCH: "amd64"
+    - env:
+        GOOS: "linux"
+        GOARCH: "386"
+        CFLAGS: "-m32"
+      install_script:
+        - dpkg --add-architecture i386
+        - apt-get update
+        - apt-get install -y gcc-multilib libc6-dev:i386
+    - env:
+        GOOS: "linux"
+        GOARCH: "arm"
+        CC: "arm-linux-gnueabihf-gcc"
+      install_script:
+        - dpkg --add-architecture armhf
+        - apt-get update
+        - apt-get install -y gcc-arm-linux-gnueabihf libc6-dev:armhf
+    - env:
+        GOOS: "linux"
+        GOARCH: "arm64"
+        CC: "aarch64-linux-gnu-gcc"
+      install_script:
+        - dpkg --add-architecture arm64
+        - apt-get update
+        - apt-get install -y gcc-aarch64-linux-gnu libc6-dev:arm64
+    - env:
+        GOOS: "linux"
+        GOARCH: "ppc64le"
+        CC: "powerpc64le-linux-gnu-gcc"
+      install_script:
+        - dpkg --add-architecture ppc64el
+        - apt-get update
+        - apt-get install -y gcc-powerpc64le-linux-gnu libc6-dev:ppc64el
+    - env:
+        GOOS: "windows"
+        GOARCH: "amd64"
+        CC: "x86_64-w64-mingw32-gcc-win32"
+      install_script:
+        - apt-get update
+        - apt-get install -y gcc-mingw-w64-x86-64
+    - env:
+        GOOS: "windows"
+        GOARCH: "386"
+        CC: "i686-w64-mingw32-gcc-win32"
+      install_script:
+        - apt-get update
+        - apt-get install -y gcc-mingw-w64-i686
+  matrix:
+    - env:
+        GO111MODULE: "off"
+        MODULES_NAME: " Modules Off"
+      allow_failures: true
+      fetch_script:
+        - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+        - go get -tags "$GOX_TAGS" -d -v -t github.com/$CIRRUS_REPO_FULL_NAME/...
+        - go generate github.com/$CIRRUS_REPO_FULL_NAME/...
+        - go get -tags "$GOX_TAGS" -d -v -t github.com/$CIRRUS_REPO_FULL_NAME/...
+    - env:
+        MODULES_NAME: ""
+      pkcs11mod_script:
+        - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+        - cd ../
+        - git clone https://github.com/namecoin/pkcs11mod.git
+        - cd pkcs11mod
+        - git checkout api-fork-1.1.1.5
+        - go mod init
+        - go mod tidy
+        - go generate ./...
+        - go mod tidy
+      fetch_script:
+        - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+        - go mod init github.com/"$CIRRUS_REPO_FULL_NAME"
+        - go mod edit -replace github.com/miekg/pkcs11=github.com/namecoin/pkcs11@master-1.1.1.4 -replace github.com/namecoin/pkcs11mod=../pkcs11mod
+        - go mod tidy
+        - go generate ./...
+        - go mod tidy
+  build_script:
+    - SO_PREFIX=lib
+    - SO_EXT=so
+    - if [[ "$GOOS" == "windows" ]]
+    - then
+    - SO_PREFIX=""
+    - SO_EXT=dll
+    - fi
+    - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+    - mkdir -p dist
+    - CGO_ENABLED=1 go build -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
+  dist_script:
+    - SO_PREFIX=lib
+    - SO_EXT=so
+    - if [[ "$GOOS" == "windows" ]]
+    - then
+    - SO_PREFIX=""
+    - SO_EXT=dll
+    - fi
+    - mv $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"/dist/*.$SO_EXT ./
+    - mkdir -p ./dist
+    - tar -caf ./dist/ncp11.tar.gz ./*.$SO_EXT
+  binaries_artifacts:
+    path: "dist/*"
+  env:
+    GO_VERSION: latest
+
+task:
+  name: "Compile Go $GO_VERSION $GOOS $GOARCH$MODULES_NAME"
+  alias: Compile
+  macos_instance:
+    image: big-sur-xcode-12.3
+  brew_script:
+    - brew update
+  bash_script:
+    # macOS default bash is missing globstar support.
+    - brew install bash
+  go_script:
+    - brew install go
+  path_script:
+    - source testdata/move_to_gopath.bash
+  env:
+    GOOS: "darwin"
+    GOARCH: "amd64"
+  matrix:
+    - env:
+        GO111MODULE: "off"
+        MODULES_NAME: " Modules Off"
+      allow_failures: true
+      fetch_script:
+        - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+        - go get -tags "$GOX_TAGS" -d -v -t github.com/$CIRRUS_REPO_FULL_NAME/...
+        - go generate github.com/$CIRRUS_REPO_FULL_NAME/...
+        - go get -tags "$GOX_TAGS" -d -v -t github.com/$CIRRUS_REPO_FULL_NAME/...
+    - env:
+        MODULES_NAME: ""
+      pkcs11mod_script:
+        - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+        - cd ../
+        - git clone https://github.com/namecoin/pkcs11mod.git
+        - cd pkcs11mod
+        - git checkout api-fork-1.1.1.5
+        - go mod init
+        - go mod tidy
+        - go generate ./...
+        - go mod tidy
+      fetch_script:
+        - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+        - go mod init github.com/"$CIRRUS_REPO_FULL_NAME"
+        - go mod edit -replace github.com/miekg/pkcs11=github.com/namecoin/pkcs11@master-1.1.1.4 -replace github.com/namecoin/pkcs11mod=../pkcs11mod
+        - go mod tidy
+        - go generate ./...
+        - go mod tidy
+  build_script:
+    - SO_PREFIX=lib
+    - SO_EXT=dylib
+    - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+    - mkdir -p dist
+    - CGO_ENABLED=1 go build -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
+  dist_script:
+    - SO_PREFIX=lib
+    - SO_EXT=dylib
+    - mv $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"/dist/*.$SO_EXT ./
+    - mkdir -p ./dist
+    - tar -caf ./dist/ncp11.tar.gz ./*.$SO_EXT
+  binaries_artifacts:
+    path: "dist/*"
+  env:
+    GO_VERSION: latest
+
+task:
+  alias: Go Lint
+  container:
+    image: golangci/golangci-lint:latest
+  path_script:
+    - source testdata/move_to_gopath.bash
+  pkcs11mod_script:
+    - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+    - cd ../
+    - git clone https://github.com/namecoin/pkcs11mod.git
+    - cd pkcs11mod
+    - git checkout api-fork-1.1.1.5
+    - go mod init
+    - go mod tidy
+    - go generate ./...
+    - go mod tidy
+  fetch_script:
+    - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
+    - go mod init github.com/"$CIRRUS_REPO_FULL_NAME"
+    - go mod edit -replace github.com/miekg/pkcs11=github.com/namecoin/pkcs11@master-1.1.1.4 -replace github.com/namecoin/pkcs11mod=../pkcs11mod
+    - go mod tidy
+    - go generate ./...
+    - go mod tidy
+  # gomoddirectives is temporarily disabled until miekg/pkcs11 merges our changes.
+  # interfacebloat complains about miekg/pkcs11 API's that we can't change.
+  # ireturn doesn't make sense for us, since our functions can return arbitrary types provided by the user, so we need to return interfaces.
+  # nosnakecase complains about miekg/pkcs11 API's that we can't change.
+  lint_script:
+    - cd $(go env GOPATH)/src/github.com/$CIRRUS_REPO_FULL_NAME/
+    - golangci-lint run --enable-all --disable exhaustivestruct,exhaustruct,gochecknoglobals,gochecknoinits,gomoddirectives,interfacebloat,ireturn,nosnakecase $GOLANGCI_ARGS -v --out-format json > $CIRRUS_WORKING_DIR/lint-report.json
+  matrix:
+    - name: Go Lint New
+      env:
+        GOLANGCI_ARGS: "--new-from-rev=HEAD~"
+    - name: Go Lint Mandatory
+      env:
+        GOLANGCI_ARGS: "--disable=cyclop,deadcode,dupl,funlen,gci,godot,godox,goerr113,gofmt,gofumpt,goimports,gomnd,gosimple,govet,ifshort,lll,nlreturn,noctx,nosnakecase,revive,unparam,unused,varcheck,varnamelen,wrapcheck,wsl --skip-dirs=ckbiproxy"
+    - name: Go Lint
+      env:
+        GOLANGCI_ARGS: ""
+      allow_failures: true
+  always:
+    golangci_artifacts:
+      path: lint-report.json
+      type: text/json
+      format: golangci
+
+# TODO: Add Windows unit tests
+
+# TODO: "Testing config parsing" from travis.bash
+
+# TODO: Add multiple Go versions to Gox builds and unit tests
+
+# TODO: Add debug stripping and path stripping to Gox for repro builds
+
+# TODO: Re-add darwin/386 for old Go versions where it was supported
+
+# TODO: Fix upload repo for tagged commits (don't use Nightly repo for this)
+
+# TODO: Skip Signify and Release if it's not applicable
+
+# TODO: Signify Nightlies
+
+# TODO: IRC notifications on failure
+
+# TODO: Cron
