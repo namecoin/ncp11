@@ -55,7 +55,7 @@ Remember to re-do these steps whenever Tor Browser is upgraded on your system!
 
 ## License / Credits
 
-Original code Copyright Namecoin Developers 2018-2022.  ckibproxy and fedorarealckbiproxy directories, and loose files in root directory, are licensed under LGPLv2.1+.  moz directory is licensed under GPLv3+.
+Original code Copyright Namecoin Developers 2018-2022.  `ckibproxy`, `fedorarealckbiproxy`, and `testdata` directories, and loose files in root directory, are licensed under LGPLv2.1+.  `moz` directory is licensed under GPLv3+.
 
 Based on:
 
