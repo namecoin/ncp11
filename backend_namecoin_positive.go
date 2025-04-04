@@ -220,9 +220,7 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 			log.Printf("ncp11: Queried for %s, got: %s\n", name, cert.Subject.CommonName)
 		}
 
-		// TODO: Figure out why NSS rejects the certificate chain if we only
-		// mark the root CA as trusted, then stop doing that.
-		if cert.Subject.CommonName == "Namecoin Root CA" || cert.Subject.CommonName == ".bit TLD CA" {
+		if cert.Subject.CommonName == "Namecoin Root CA" {
 			if b.trace && b.traceSensitive {
 				log.Printf("ncp11: Queried for %s, marking as trusted: %s\n", name, cert.Subject.CommonName)
 			}
