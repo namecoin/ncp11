@@ -222,8 +222,7 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 
 		// TODO: Figure out why NSS rejects the certificate chain if we only
 		// mark the root CA as trusted, then stop doing that.
-		// TODO: Handle Subject CommonName and Issuer CommonName differently.
-		if name == "Namecoin Root CA" || name == ".bit TLD CA" {
+		if cert.Subject.CommonName == "Namecoin Root CA" || cert.Subject.CommonName == ".bit TLD CA" {
 			certData.BuiltinPolicy = b.builtin
 			certData.TrustServerAuth = pkcs11.CKT_NSS_TRUSTED_DELEGATOR
 		} else {
