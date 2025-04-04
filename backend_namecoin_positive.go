@@ -220,20 +220,25 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 			log.Printf("ncp11: Queried for %s, got: %s\n", name, cert.Subject.CommonName)
 		}
 
-		// TODO: Figure out why NSS rejects the certificate chain if we only
-		// mark the root CA as trusted, then stop doing that.
-		// TODO: Handle Subject CommonName and Issuer CommonName differently.
-		if name == "Namecoin Root CA" || name == ".bit TLD CA" {
-			certData.BuiltinPolicy = b.builtin
-			certData.TrustServerAuth = pkcs11.CKT_NSS_TRUSTED_DELEGATOR
-		} else {
-			certData.BuiltinPolicy = false
-			certData.TrustServerAuth = pkcs11.CKT_NSS_MUST_VERIFY_TRUST
-		}
+		if cert.Subject.CommonName == "Namecoin Root CA" {
+			if b.trace && b.traceSensitive {
+				log.Printf("ncp11: Queried for %s, marking as trusted: %s\n", name, cert.Subject.CommonName)
+			}
 
-		certData.TrustClientAuth = pkcs11.CKT_NSS_NOT_TRUSTED
-		certData.TrustCodeSigning = pkcs11.CKT_NSS_NOT_TRUSTED
-		certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.BuiltinPolicy = b.builtin
+
+			// Only set trust attributes for CA's controlled by Encaya.
+			certData.TrustServerAuth = pkcs11.CKT_NSS_TRUSTED_DELEGATOR
+			certData.TrustClientAuth = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.TrustCodeSigning = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
+		} else {
+			if b.trace && b.traceSensitive {
+				log.Printf("ncp11: Queried for %s, marking as neutral: %s\n", name, cert.Subject.CommonName)
+			}
+
+			certData.BuiltinPolicy = false
+		}
 
 		results = append(results, certData)
 	}
