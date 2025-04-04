@@ -216,6 +216,10 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 
 		certData.Label = cert.Subject.CommonName + " " + hexFingerprint
 
+		if b.trace && b.traceSensitive {
+			log.Printf("ncp11: Queried for %s, got: %s\n", name, cert.Subject.CommonName)
+		}
+
 		// TODO: Figure out why NSS rejects the certificate chain if we only
 		// mark the root CA as trusted, then stop doing that.
 		// TODO: Handle Subject CommonName and Issuer CommonName differently.
