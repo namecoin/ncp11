@@ -228,19 +228,19 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 			}
 
 			certData.BuiltinPolicy = b.builtin
+
+			// Only set trust attributes for CA's controlled by Encaya.
 			certData.TrustServerAuth = pkcs11.CKT_NSS_TRUSTED_DELEGATOR
+			certData.TrustClientAuth = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.TrustCodeSigning = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
 		} else {
 			if b.trace && b.traceSensitive {
 				log.Printf("ncp11: Queried for %s, marking as neutral: %s\n", name, cert.Subject.CommonName)
 			}
 
 			certData.BuiltinPolicy = false
-			certData.TrustServerAuth = pkcs11.CKT_NSS_MUST_VERIFY_TRUST
 		}
-
-		certData.TrustClientAuth = pkcs11.CKT_NSS_NOT_TRUSTED
-		certData.TrustCodeSigning = pkcs11.CKT_NSS_NOT_TRUSTED
-		certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
 
 		results = append(results, certData)
 	}
