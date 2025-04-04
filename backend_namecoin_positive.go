@@ -223,5 +223,9 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 		results = append(results, certData)
 	}
 
+	if b.trace && b.traceSensitive {
+		log.Printf("ncp11: Returned %d certificates for: %s\n", len(results), name)
+	}
+
 	return results, nil
 }
