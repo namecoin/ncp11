@@ -40,12 +40,24 @@ import (
 type BackendNamecoinPositive struct {
 	trace          bool
 	traceSensitive bool
+	builtin        bool
 }
 
 func NewBackendNamecoinPositive() (p11trustmod.Backend, error) {
+	// Default to false because builtin status causes Certificate Transparency
+	// errors in Firefox 135+. If we start getting reports of other TLS clients
+	// that prefer true, we can maybe try user-agent sniffing.
+	builtin := false;
+	if os.Getenv("NCP11_BUILTIN_FORCE") == "0" {
+		builtin = false;
+	} else if os.Getenv("NCP11_BUILTIN_FORCE") == "1" {
+		builtin = true;
+	}
+
 	return &BackendNamecoinPositive{
 		trace:          os.Getenv("NCP11_TRACE") == "1",
 		traceSensitive: os.Getenv("NCP11_TRACE_SENSITIVE") == "1",
+		builtin: builtin,
 	}, nil
 }
 
@@ -87,8 +99,7 @@ func (b *BackendNamecoinPositive) TokenInfo() (pkcs11.TokenInfo, error) {
 }
 
 func (b *BackendNamecoinPositive) IsBuiltinRootList() (bool, error) {
-	// TODO: make this conditional
-	return true, nil
+	return b.builtin, nil
 }
 
 func (b *BackendNamecoinPositive) IsTrusted() (bool, error) {
@@ -209,7 +220,7 @@ func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.C
 		// mark the root CA as trusted, then stop doing that.
 		// TODO: Handle Subject CommonName and Issuer CommonName differently.
 		if name == "Namecoin Root CA" || name == ".bit TLD CA" {
-			certData.BuiltinPolicy = true
+			certData.BuiltinPolicy = b.builtin
 			certData.TrustServerAuth = pkcs11.CKT_NSS_TRUSTED_DELEGATOR
 		} else {
 			certData.BuiltinPolicy = false
