@@ -22,6 +22,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"log"
@@ -131,12 +132,12 @@ func (b *BackendNamecoinPositive) QueryIssuerSerial(issuer *pkix.Name, serial *b
 }
 
 func (b *BackendNamecoinPositive) QueryAll() ([]*p11trustmod.CertificateData, error) {
-	results, err := b.queryCommonName("Namecoin Root CA")
+	results, err := b.queryCommonName("Namecoin Root CA", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	tldCAs, err := b.queryCommonName(".bit TLD CA")
+	tldCAs, err := b.queryCommonName(".bit TLD CA", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -147,24 +148,54 @@ func (b *BackendNamecoinPositive) QueryAll() ([]*p11trustmod.CertificateData, er
 }
 
 func (b *BackendNamecoinPositive) queryPkixName(name *pkix.Name) ([]*p11trustmod.CertificateData, error) {
-	if name.SerialNumber == "Namecoin TLS Certificate" {
+	if strings.HasPrefix(name.SerialNumber, "Namecoin TLS Certificate") {
+		stapled := map[string]string{}
+
+		stapledHeader := "Namecoin TLS Certificate\n\nStapled: "
+
+		if name.SerialNumber == "Namecoin TLS Certificate" {
+			stapled = nil
+		} else if strings.HasPrefix(name.SerialNumber, stapledHeader) {
+			stapledStr := strings.TrimPrefix(name.SerialNumber, stapledHeader)
+
+			err := json.Unmarshal([]byte(stapledStr), &stapled)
+			if err != nil {
+				if b.trace && b.traceSensitive {
+					log.Printf("ncp11: PKIX SerialNumber stapled data failed to unmarshal (%s), CommonName: %s\n", err, name.CommonName)
+				}
+				return []*p11trustmod.CertificateData{}, nil
+			}
+		} else {
+			if b.trace && b.traceSensitive {
+				log.Printf("ncp11: PKIX SerialNumber had unexpected form, CommonName: %s\n", name.CommonName)
+			}
+			return []*p11trustmod.CertificateData{}, nil
+		}
+
 		if b.trace && b.traceSensitive {
 			log.Printf("ncp11: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", name.CommonName)
 		}
 
-		return b.queryCommonName(name.CommonName)
+		return b.queryCommonName(name.CommonName, stapled)
 	}
 
 	return []*p11trustmod.CertificateData{}, nil
 }
 
-func (b *BackendNamecoinPositive) queryCommonName(name string) ([]*p11trustmod.CertificateData, error) {
+func (b *BackendNamecoinPositive) queryCommonName(name string, stapled map[string]string) ([]*p11trustmod.CertificateData, error) {
 	var netClient = &http.Client{
 		Timeout: time.Second * 10,
 	}
 
 	postArgs := url.Values{}
 	postArgs.Set("domain", name)
+
+	// Plumb stapled data from Subject Serial Number to Encaya
+	if stapled != nil {
+		for stapledKey, stapledValue := range stapled {
+			postArgs.Set(stapledKey, stapledValue)
+		}
+	}
 
 	if b.trace && b.traceSensitive {
 		log.Printf("ncp11: Querying Encaya for: %s\n", name)
