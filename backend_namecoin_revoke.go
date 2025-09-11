@@ -110,8 +110,8 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		}
 
 		certData := &p11trustmod.CertificateData{
-			Certificate: x509.Certificate{
-				Issuer: issuer,
+			Certificate: &x509.Certificate{
+				Issuer: *issuer,
 				SerialNumber: serial,
 			},
 		}
