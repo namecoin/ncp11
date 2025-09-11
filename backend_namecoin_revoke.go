@@ -96,7 +96,7 @@ func (b *BackendNamecoinRevoke) QuerySubject(subject *pkix.Name) ([]*p11trustmod
 }
 
 func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big.Int) ([]*p11trustmod.CertificateData, error) {
-	if !strings.HasPrefix(name.SerialNumber, "Namecoin TLS Certificate") {
+	if !strings.HasPrefix(issuer.SerialNumber, "Namecoin TLS Certificate") {
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
@@ -106,7 +106,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	odd.Mod(serial, big.NewInt(2))
 	if odd.Cmp(big.NewInt(1)) == 0 {
 		if b.trace && b.traceSensitive {
-			log.Printf("ncp11: Revoking cert serial %s, CommonName: %s\n", serial.String(), name.CommonName)
+			log.Printf("ncp11: Revoking cert serial %s, CommonName: %s\n", serial.String(), issuer.CommonName)
 		}
 
 		certData := &p11trustmod.CertificateData{
@@ -129,7 +129,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	}
 
 	if b.trace && b.traceSensitive {
-		log.Printf("ncp11: Unrevoked cert serial %s, CommonName: %s\n", serial.String(), name.CommonName)
+		log.Printf("ncp11: Unrevoked cert serial %s, CommonName: %s\n", serial.String(), issuer.CommonName)
 	}
 
 	return []*p11trustmod.CertificateData{}, nil
