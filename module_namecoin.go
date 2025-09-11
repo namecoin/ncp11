@@ -55,7 +55,12 @@ func (b *ModuleNamecoin) Slots() ([]p11.Slot, error) {
 		return []p11.Slot{}, err
 	}
 
-	slots := []p11.Slot{positive}
+	revoke, err := NewSlotNamecoinRevoke()
+	if err != nil {
+		return []p11.Slot{}, err
+	}
+
+	slots := []p11.Slot{positive, revoke}
 
 	return slots, nil
 }
