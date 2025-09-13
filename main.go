@@ -28,10 +28,42 @@ clean:
 package main
 
 import (
+	"io"
+	"log"
+	"os"
+
 	"github.com/namecoin/pkcs11mod/p11mod"
 )
 
+var logfile io.Closer
+
 func init() {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		log.Printf("error reading config dir (will try fallback): %v", err)
+
+		dir = "."
+	}
+
+	f, err := os.OpenFile(dir+"/ncp11.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	if err != nil {
+		log.Printf("error opening file (will try fallback): %v", err)
+
+		dir = "."
+		f, err = os.OpenFile(dir+"/ncp11.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	}
+
+	if err != nil {
+		log.Printf("error opening file (will fallback to console logging): %v", err)
+	}
+
+	if err == nil {
+		log.SetOutput(f)
+		logfile = f
+	}
+
+	log.Println("ncp11: module loading")
+
 	module, err := NewModuleNamecoin()
 
 	p11mod.SetBackend(module, err)
