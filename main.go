@@ -1,5 +1,5 @@
 // ncp11
-// Copyright (C) 2018-2022  Namecoin Developers
+// Copyright (C) 2018-2025 Namecoin Developers
 //
 // ncp11 is free software; you can redistribute it and/or
 // modify it under the terms of the GNU Lesser General Public
