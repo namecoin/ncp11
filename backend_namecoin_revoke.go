@@ -133,7 +133,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	}
 
 	if b.trace && b.traceSensitive {
-		log.Printf("ncp11: Unrevoked cert serial %s, CommonName: %s\n", serial.String(), issuer.CommonName)
+		log.Printf("ncp11: Unrevoking cert serial %s, CommonName: %s\n", serial.String(), issuer.CommonName)
 	}
 
 	return []*p11trustmod.CertificateData{}, nil
