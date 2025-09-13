@@ -104,36 +104,60 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
-	// Purely for test purposes, will switch to blockchain lookup later
+	if b.trace && b.traceSensitive {
+		log.Printf("ncp11 revoke: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", name.CommonName)
+	}
+
+	entries := []x509.RevocationListEntry{}
+
+	// BEGIN TEST CODE (Purely for test purposes, will switch to blockchain lookup later)
 
 	odd := new(big.Int)
 	odd.Mod(serial, big.NewInt(2))
 	if odd.Cmp(big.NewInt(1)) == 0 {
-		if b.trace && b.traceSensitive {
-			log.Printf("ncp11: Revoking cert serial 0x%s, CommonName: %s\n", serial.Text(16), issuer.CommonName)
+		entry := RevocationListEntry{
+			SerialNumber: serial,
 		}
+		entries = append(entries, entry)
+	}
 
-		certData := &p11trustmod.CertificateData{
-			Certificate: &x509.Certificate{
-				Issuer: *issuer,
-				SerialNumber: serial,
-			},
+	crl := &x509.RevocationList{
+		Issuer: issuer,
+		RevokedCertificateEntries: entries,
+	}
+
+	// END TEST CODE
+
+	for _, entry := range crl.RevokedCertificateEntries {
+		if serial.Cmp(entry.SerialNumber) == 0 {
+			// Serial is in the CRL.
+
+			if b.trace && b.traceSensitive {
+				log.Printf("ncp11 revoke: Revoking cert serial 0x%s, CommonName: %s\n", serial.Text(16), issuer.CommonName)
+			}
+
+			certData := &p11trustmod.CertificateData{
+				Certificate: &x509.Certificate{
+					Issuer: *issuer,
+					SerialNumber: serial,
+				},
+			}
+
+			certData.Label = "Revoked: " + issuer.CommonName + " " + serial.Text(16)
+
+			certData.BuiltinPolicy = false
+
+			certData.TrustServerAuth = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.TrustClientAuth = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.TrustCodeSigning = pkcs11.CKT_NSS_NOT_TRUSTED
+			certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
+
+			return []*p11trustmod.CertificateData{certData}, nil
 		}
-
-		certData.Label = "Revoked: " + issuer.CommonName + " " + serial.Text(16)
-
-		certData.BuiltinPolicy = false
-
-		certData.TrustServerAuth = pkcs11.CKT_NSS_NOT_TRUSTED
-		certData.TrustClientAuth = pkcs11.CKT_NSS_NOT_TRUSTED
-		certData.TrustCodeSigning = pkcs11.CKT_NSS_NOT_TRUSTED
-		certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
-
-		return []*p11trustmod.CertificateData{certData}, nil
 	}
 
 	if b.trace && b.traceSensitive {
-		log.Printf("ncp11: Unrevoking cert serial 0x%s, CommonName: %s\n", serial.Text(16), issuer.CommonName)
+		log.Printf("ncp11 revoke: Unrevoking cert serial 0x%s, CommonName: %s\n", serial.Text(16), issuer.CommonName)
 	}
 
 	return []*p11trustmod.CertificateData{}, nil
