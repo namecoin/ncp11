@@ -110,7 +110,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	odd.Mod(serial, big.NewInt(2))
 	if odd.Cmp(big.NewInt(1)) == 0 {
 		if b.trace && b.traceSensitive {
-			log.Printf("ncp11: Revoking cert serial %s, CommonName: %s\n", serial.String(), issuer.CommonName)
+			log.Printf("ncp11: Revoking cert serial 0x%s, CommonName: %s\n", serial.Text(16), issuer.CommonName)
 		}
 
 		certData := &p11trustmod.CertificateData{
@@ -120,7 +120,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 			},
 		}
 
-		certData.Label = "Revoked: " + issuer.CommonName + " " + serial.String()
+		certData.Label = "Revoked: " + issuer.CommonName + " " + serial.Text(16)
 
 		certData.BuiltinPolicy = false
 
@@ -133,7 +133,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	}
 
 	if b.trace && b.traceSensitive {
-		log.Printf("ncp11: Unrevoking cert serial %s, CommonName: %s\n", serial.String(), issuer.CommonName)
+		log.Printf("ncp11: Unrevoking cert serial 0x%s, CommonName: %s\n", serial.Text(16), issuer.CommonName)
 	}
 
 	return []*p11trustmod.CertificateData{}, nil
