@@ -96,6 +96,10 @@ func (b *BackendNamecoinRevoke) QuerySubject(subject *pkix.Name) ([]*p11trustmod
 }
 
 func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big.Int) ([]*p11trustmod.CertificateData, error) {
+	if issuer == nil || serial == nil {
+		return []*p11trustmod.CertificateData{}, nil
+	}
+
 	if !strings.HasPrefix(issuer.SerialNumber, "Namecoin TLS Certificate") {
 		return []*p11trustmod.CertificateData{}, nil
 	}
