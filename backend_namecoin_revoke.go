@@ -142,7 +142,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		NotAfter:  time.Now().Add(time.Hour),
 
 		IsCA:                  true,
-		KeyUsage:              x509.KeyUsage.crlSign,
+		KeyUsage:              x509.KeyUsageCRLSign,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 	}
