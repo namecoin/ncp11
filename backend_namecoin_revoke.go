@@ -105,7 +105,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	}
 
 	if b.trace && b.traceSensitive {
-		log.Printf("ncp11 revoke: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", name.CommonName)
+		log.Printf("ncp11 revoke: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", issuer.CommonName)
 	}
 
 	entries := []x509.RevocationListEntry{}
@@ -115,14 +115,14 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	odd := new(big.Int)
 	odd.Mod(serial, big.NewInt(2))
 	if odd.Cmp(big.NewInt(1)) == 0 {
-		entry := RevocationListEntry{
+		entry := x509.RevocationListEntry{
 			SerialNumber: serial,
 		}
 		entries = append(entries, entry)
 	}
 
 	crl := &x509.RevocationList{
-		Issuer: issuer,
+		Issuer: *issuer,
 		RevokedCertificateEntries: entries,
 	}
 
