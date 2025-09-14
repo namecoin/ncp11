@@ -133,7 +133,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Printf("Failed to generate private key: %v\n", err)
-		return []*p11trustmod.CertificateData{}, nil
+		return []*p11trustmod.CertificateData{}, err
 	}
 
 	crlIssuer := &x509.Certificate{
@@ -148,18 +148,21 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		KeyUsage:              x509.KeyUsageCRLSign,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
+
+		// TODO: calculate this properly
+		SubjectKeyId: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
 	}
 
 	crlBytes, err := x509.CreateRevocationList(rand.Reader, crlTemplate, crlIssuer, priv)
 	if err != nil {
 		log.Printf("Failed to sign CRL: %v\n", err)
-		return []*p11trustmod.CertificateData{}, nil
+		return []*p11trustmod.CertificateData{}, err
 	}
 
 	crl, err := x509.ParseRevocationList(crlBytes)
 	if err != nil {
 		log.Printf("Failed to parse CRL: %v\n", err)
-		return []*p11trustmod.CertificateData{}, nil
+		return []*p11trustmod.CertificateData{}, err
 	}
 
 	// END TEST CODE
