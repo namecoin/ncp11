@@ -138,8 +138,8 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		Subject: pkix.Name{
 			CommonName:   "Placeholder CRL Issuer",
 		},
-		NotBefore: notBefore = time.Now(),
-		NotAfter:  notBefore.Add(time.Hour),
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour),
 
 		IsCA:                  true,
 		KeyUsage:              x509.KeyUsage.crlSign,
