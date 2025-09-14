@@ -127,7 +127,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		RevokedCertificateEntries: entries,
 	}
 
-	priv, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Printf("Failed to generate private key: %v\n", err)
 		return []*p11trustmod.CertificateData{}, nil
