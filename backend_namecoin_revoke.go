@@ -18,6 +18,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"log"
@@ -121,9 +122,41 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		entries = append(entries, entry)
 	}
 
-	crl := &x509.RevocationList{
+	crlTemplate := &x509.RevocationList{
 		Issuer: *issuer,
 		RevokedCertificateEntries: entries,
+	}
+
+	priv, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		log.Printf("Failed to generate private key: %v\n", err)
+		return []*p11trustmod.CertificateData{}, nil
+	}
+
+	crlIssuer := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName:   "Placeholder CRL Issuer",
+		},
+		NotBefore: notBefore = time.Now(),
+		NotAfter:  notBefore.Add(time.Hour),
+
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsage.crlSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+
+	crlBytes, err := x509.CreateRevocationList(rand.Reader, crlTemplate, crlIssuer, priv)
+	if err != nil {
+		log.Printf("Failed to sign CRL: %v\n", err)
+		return []*p11trustmod.CertificateData{}, nil
+	}
+
+	crl, err := x509.ParseRevocationList(crlBytes)
+	if err != nil {
+		log.Printf("Failed to parse CRL: %v\n", err)
+		return []*p11trustmod.CertificateData{}, nil
 	}
 
 	// END TEST CODE
