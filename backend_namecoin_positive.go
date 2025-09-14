@@ -161,19 +161,19 @@ func (b *BackendNamecoinPositive) queryPkixName(name *pkix.Name) ([]*p11trustmod
 			err := json.Unmarshal([]byte(stapledStr), &stapled)
 			if err != nil {
 				if b.trace && b.traceSensitive {
-					log.Printf("ncp11: PKIX SerialNumber stapled data failed to unmarshal (%s), CommonName: %s\n", err, name.CommonName)
+					log.Printf("ncp11 positive: PKIX SerialNumber stapled data failed to unmarshal (%s), CommonName: %s\n", err, name.CommonName)
 				}
 				return []*p11trustmod.CertificateData{}, nil
 			}
 		} else {
 			if b.trace && b.traceSensitive {
-				log.Printf("ncp11: PKIX SerialNumber had unexpected form, CommonName: %s\n", name.CommonName)
+				log.Printf("ncp11 positive: PKIX SerialNumber had unexpected form, CommonName: %s\n", name.CommonName)
 			}
 			return []*p11trustmod.CertificateData{}, nil
 		}
 
 		if b.trace && b.traceSensitive {
-			log.Printf("ncp11: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", name.CommonName)
+			log.Printf("ncp11 positive: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", name.CommonName)
 		}
 
 		return b.queryCommonName(name.CommonName, stapled)
@@ -198,25 +198,25 @@ func (b *BackendNamecoinPositive) queryCommonName(name string, stapled map[strin
 	}
 
 	if b.trace && b.traceSensitive {
-		log.Printf("ncp11: Querying Encaya for: %s\n", name)
+		log.Printf("ncp11 positive: Querying Encaya for: %s\n", name)
 	}
 
 	// TODO: Use Unix domain socket
 	response, err := netClient.PostForm("http://127.127.127.127/lookup", postArgs)
 	if err != nil {
-		log.Printf("ncp11: Error POSTing to Encaya: %s\n", err)
+		log.Printf("ncp11 positive: Error POSTing to Encaya: %s\n", err)
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
 	buf, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Printf("ncp11: Error reading response from Encaya: %s\n", err)
+		log.Printf("ncp11 positive: Error reading response from Encaya: %s\n", err)
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
 	err = response.Body.Close()
 	if err != nil {
-		log.Printf("ncp11: Error closing response from Encaya: %s\n", err)
+		log.Printf("ncp11 positive: Error closing response from Encaya: %s\n", err)
 		return []*p11trustmod.CertificateData{}, nil
 	}
 
@@ -248,12 +248,12 @@ func (b *BackendNamecoinPositive) queryCommonName(name string, stapled map[strin
 		certData.Label = cert.Subject.CommonName + " " + hexFingerprint
 
 		if b.trace && b.traceSensitive {
-			log.Printf("ncp11: Queried for %s, got: %s\n", name, cert.Subject.CommonName)
+			log.Printf("ncp11 positive: Queried for %s, got: %s\n", name, cert.Subject.CommonName)
 		}
 
 		if cert.Subject.CommonName == "Namecoin Root CA" {
 			if b.trace && b.traceSensitive {
-				log.Printf("ncp11: Queried for %s, marking as trusted: %s\n", name, cert.Subject.CommonName)
+				log.Printf("ncp11 positive: Queried for %s, marking as trusted: %s\n", name, cert.Subject.CommonName)
 			}
 
 			certData.BuiltinPolicy = b.builtin
@@ -265,7 +265,7 @@ func (b *BackendNamecoinPositive) queryCommonName(name string, stapled map[strin
 			certData.TrustEmailProtection = pkcs11.CKT_NSS_NOT_TRUSTED
 		} else {
 			if b.trace && b.traceSensitive {
-				log.Printf("ncp11: Queried for %s, marking as neutral: %s\n", name, cert.Subject.CommonName)
+				log.Printf("ncp11 positive: Queried for %s, marking as neutral: %s\n", name, cert.Subject.CommonName)
 			}
 
 			certData.BuiltinPolicy = false
@@ -275,7 +275,7 @@ func (b *BackendNamecoinPositive) queryCommonName(name string, stapled map[strin
 	}
 
 	if b.trace && b.traceSensitive {
-		log.Printf("ncp11: Returned %d certificates for: %s\n", len(results), name)
+		log.Printf("ncp11 positive: Returned %d certificates for: %s\n", len(results), name)
 	}
 
 	return results, nil
