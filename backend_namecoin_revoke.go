@@ -132,7 +132,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		log.Printf("Failed to generate private key: %v\n", err)
+		log.Printf("ncp11 revoke: Failed to generate private key: %v\n", err)
 		return []*p11trustmod.CertificateData{}, err
 	}
 
@@ -155,13 +155,13 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 
 	crlBytes, err := x509.CreateRevocationList(rand.Reader, crlTemplate, crlIssuer, priv)
 	if err != nil {
-		log.Printf("Failed to sign CRL: %v\n", err)
+		log.Printf("ncp11 revoke: Failed to sign CRL: %v\n", err)
 		return []*p11trustmod.CertificateData{}, err
 	}
 
 	crl, err := x509.ParseRevocationList(crlBytes)
 	if err != nil {
-		log.Printf("Failed to parse CRL: %v\n", err)
+		log.Printf("ncp11 revoke: Failed to parse CRL: %v\n", err)
 		return []*p11trustmod.CertificateData{}, err
 	}
 
