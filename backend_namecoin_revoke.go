@@ -128,6 +128,10 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	crlTemplate := &x509.RevocationList{
 		Issuer: *issuer,
 		RevokedCertificateEntries: entries,
+
+		Number: big.NewInt(1),
+		ThisUpdate: time.Now(),
+		NextUpdate: time.Now().Add(time.Hour),
 	}
 
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
