@@ -121,6 +121,7 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 	if odd.Cmp(big.NewInt(1)) == 0 {
 		entry := x509.RevocationListEntry{
 			SerialNumber: serial,
+			RevocationTime: time.Now(),
 		}
 		entries = append(entries, entry)
 	}
