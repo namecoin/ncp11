@@ -275,6 +275,9 @@ task:
         rm -rf /usr/local/go
         tar -C /usr/local -xzf go.tar.gz
         export PATH=/usr/local/go/bin:$PATH
+        export GOPATH=/go
+        export GOMODCACHE="$GOPATH/pkg/mod"
+        mkdir -p "$GOMODCACHE"
         mkdir -p "$(go env GOPATH)/src/github.com/alecthomas"
         git clone --depth=1 https://github.com/alecthomas/kingpin.git "$(go env GOPATH)/src/github.com/alecthomas/kingpin"
         curl -fsSL -o encaya-src.tar.gz https://github.com/namecoin/encaya/archive/refs/heads/master.tar.gz
@@ -380,6 +383,9 @@ task:
         Invoke-WebRequest -UseBasicParsing -Uri "https://go.dev/dl/$($goFile.filename)" -OutFile 'windows-deps\go.zip'
         Expand-Archive -Path 'windows-deps\go.zip' -DestinationPath 'windows-deps'
         $env:PATH = "$(Resolve-Path 'windows-deps\go\bin');$env:PATH"
+        $env:GOPATH = Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\gopath'
+        $env:GOMODCACHE = Join-Path $env:GOPATH 'pkg\mod'
+        New-Item -ItemType Directory -Path $env:GOMODCACHE -Force | Out-Null
         $kingpinPath = Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\kingpin'
         git clone --depth=1 https://github.com/alecthomas/kingpin.git $kingpinPath
         Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/namecoin/encaya/archive/refs/heads/master.zip' -OutFile 'windows-deps\encaya-src.zip'
