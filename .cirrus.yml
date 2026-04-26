@@ -219,7 +219,7 @@ task:
   lint_script:
     - |
         cd $(go env GOPATH)/src/github.com/$CIRRUS_REPO_FULL_NAME/
-        packages=$(go list ./... | grep -v '/ckbiproxy$')
+        packages=$(go list -f '{{.Dir}}' ./... | sed "s#^$(pwd)#.#" | grep -v '^./ckbiproxy$')
         golangci-lint run --enable-all --disable exhaustivestruct,exhaustruct,gochecknoglobals,gochecknoinits,gomoddirectives,interfacebloat,ireturn,nosnakecase $GOLANGCI_ARGS -v --out-format json $packages > $CIRRUS_WORKING_DIR/lint-report.json
   matrix:
     - name: Go Lint New
@@ -259,7 +259,7 @@ task:
     - apt-get install -y dnssec-trigger bind9-dnsutils firefox-esr openssl python3 libcap-dev
     # Namecoin Core
     - BITCOIND_URL=$(curl https://www.namecoin.org/download/ | grep x86_64-linux-gnu.tar.gz | grep -v 0.13.99 | grep --only-matching https://.*.tar.gz)
-    - BITCOIND_FILENAME=$(echo $BITCOIND_URL | grep -E --only-matching 'namecoin-nc.*.tar.gz')
+    - BITCOIND_FILENAME=$(basename "$BITCOIND_URL")
     - BITCOIND_PATH=/tmp/bitcoind/$BITCOIND_FILENAME
     - tar -xaf $BITCOIND_PATH || (rm -f /tmp/bitcoind/* && curl --output $BITCOIND_PATH $BITCOIND_URL && tar -xaf $BITCOIND_PATH)
     - cp -a namecoin-*/* /usr/
