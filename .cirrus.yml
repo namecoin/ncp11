@@ -277,7 +277,7 @@ task:
         export PATH=/usr/local/go/bin:$PATH
         curl -fsSL -o encaya-src.tar.gz https://github.com/namecoin/encaya/archive/refs/heads/master.tar.gz
         tar -xaf encaya-src.tar.gz
-        cd encaya-*
+        cd encaya-*/
         go build -o /usr/bin/encaya .
         go build -o /usr/bin/encayagen ./encayagen
     # ncp11
