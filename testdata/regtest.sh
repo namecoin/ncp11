@@ -341,7 +341,7 @@ echo "{
 
 echo "Fetch Namecoin.org with ncp11 Firefox"
 testdata/try-firefox-connect.bash www.namecoin.org success "" || testdata/dump-proxy-log-fail.bash
-testdata/assert-proxy-log.bash present
+testdata/assert-proxy-log.bash missing
 
 echo "Fetch unrelated local test cert with ncp11 Firefox"
 start_local_https_server "$BOGUS_LEAF_CERT" "$BOGUS_LEAF_KEY"
