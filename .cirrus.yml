@@ -227,7 +227,7 @@ task:
         GOLANGCI_ARGS: "--new-from-rev=HEAD~"
     - name: Go Lint Mandatory
       env:
-        GOLANGCI_ARGS: "--disable=cyclop,deadcode,depguard,dupl,funlen,gci,gocritic,godot,godox,goerr113,gofmt,gofumpt,goimports,gomnd,gosimple,govet,ifshort,lll,mnd,nestif,nlreturn,noctx,nosnakecase,revive,unparam,unused,varcheck,varnamelen,wrapcheck,wsl --skip-dirs=ckbiproxy"
+        GOLANGCI_ARGS: "--disable=cyclop,deadcode,depguard,dupl,funlen,gci,gocritic,godot,godox,goerr113,gofmt,gofumpt,goimports,gomnd,gosimple,govet,ifshort,lll,mnd,nestif,nlreturn,noctx,nosnakecase,revive,unparam,unused,varcheck,varnamelen,wrapcheck,wsl"
     - name: Go Lint
       env:
         GOLANGCI_ARGS: ""
