@@ -244,7 +244,7 @@ task:
   matrix:
     - compute_engine_instance:
         image_project: debian-cloud
-        image: family/debian-11
+        image: family/debian-12
         platform: linux
         cpu: 1
         memory: 1G
@@ -256,7 +256,7 @@ task:
   install_script:
     - apt-get update
     # bind9-dnsutils contains dig
-    - apt-get install -y dnssec-trigger bind9-dnsutils firefox-esr openssl python3 libcap-dev
+    - apt-get install -y dnssec-trigger bind9-dnsutils firefox-esr gcc openssl python3 libcap-dev
     # Namecoin Core
     - BITCOIND_URL=$(curl https://www.namecoin.org/download/ | grep x86_64-linux-gnu.tar.gz | grep -v 0.13.99 | grep --only-matching https://.*.tar.gz)
     - BITCOIND_FILENAME=$(basename "$BITCOIND_URL")
@@ -289,8 +289,8 @@ task:
         test -f go.mod || go mod init github.com/namecoin/encaya
         go mod edit -replace gopkg.in/alecthomas/kingpin.v2="$(go env GOPATH)/src/github.com/alecthomas/kingpin"
         go mod tidy
-        go build -o /usr/bin/encaya .
-        go build -o /usr/bin/encayagen ./encayagen
+        CGO_ENABLED=1 go build -o /usr/bin/encaya .
+        CGO_ENABLED=1 go build -o /usr/bin/encayagen ./encayagen
     # ncp11
     - NCP11_URL=https://api.cirrus-ci.com/v1/artifact/build/$CIRRUS_BUILD_ID/Compile%20Go%20$GO_VERSION%20linux%20amd64/binaries/dist/ncp11.tar.gz
     - curl -o ncp11.tar.gz $NCP11_URL
@@ -315,13 +315,13 @@ task:
     - testdata/run_bitcoind.sh
   ncdns_service_background_script:
     # ncdns refuses to run as root
-    - adduser ncdns --disabled-password
+    - adduser ncdns --disabled-password --gecos ""
     - ncdns -conf testdata/ncdns.conf
   encaya_service_background_script:
     # Avoid race condition in "adduser" between ncdns and encaya
     - sleep 5s
     # encaya refuses to run as root
-    - adduser encaya --disabled-password
+    - adduser encaya --disabled-password --gecos ""
     - encayagen -conf "$(pwd)/testdata/encaya.conf"
     - chown encaya:encaya testdata/*.pem
     # Curiously, relative paths don't work here, they cause the .pem files to
