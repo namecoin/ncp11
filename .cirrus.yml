@@ -192,7 +192,7 @@ task:
 task:
   alias: Go Lint
   container:
-    image: golangci/golangci-lint:latest
+    image: golangci/golangci-lint:v1.64.8
   path_script:
     - source testdata/move_to_gopath.bash
   pkcs11mod_script:
