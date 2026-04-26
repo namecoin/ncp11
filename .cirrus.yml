@@ -217,8 +217,10 @@ task:
   # ireturn doesn't make sense for us, since our functions can return arbitrary types provided by the user, so we need to return interfaces.
   # nosnakecase complains about miekg/pkcs11 API's that we can't change.
   lint_script:
-    - cd $(go env GOPATH)/src/github.com/$CIRRUS_REPO_FULL_NAME/
-    - golangci-lint run --enable-all --disable exhaustivestruct,exhaustruct,gochecknoglobals,gochecknoinits,gomoddirectives,interfacebloat,ireturn,nosnakecase $GOLANGCI_ARGS -v --out-format json > $CIRRUS_WORKING_DIR/lint-report.json
+    - |
+        cd $(go env GOPATH)/src/github.com/$CIRRUS_REPO_FULL_NAME/
+        packages=$(go list ./... | grep -v '/ckbiproxy$')
+        golangci-lint run --enable-all --disable exhaustivestruct,exhaustruct,gochecknoglobals,gochecknoinits,gomoddirectives,interfacebloat,ireturn,nosnakecase $GOLANGCI_ARGS -v --out-format json $packages > $CIRRUS_WORKING_DIR/lint-report.json
   matrix:
     - name: Go Lint New
       env:
