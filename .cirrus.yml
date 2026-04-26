@@ -276,7 +276,7 @@ task:
         tar -C /usr/local -xzf go.tar.gz
         export PATH=/usr/local/go/bin:$PATH
         mkdir -p "$(go env GOPATH)/src/github.com/alecthomas"
-        git clone --depth=1 --branch fork-2.2.6 https://github.com/namecoin/kingpin.git "$(go env GOPATH)/src/github.com/alecthomas/kingpin"
+        git clone --depth=1 https://github.com/alecthomas/kingpin.git "$(go env GOPATH)/src/github.com/alecthomas/kingpin"
         curl -fsSL -o encaya-src.tar.gz https://github.com/namecoin/encaya/archive/refs/heads/master.tar.gz
         tar -xaf encaya-src.tar.gz
         cd encaya-*/
@@ -381,7 +381,7 @@ task:
         Expand-Archive -Path 'windows-deps\go.zip' -DestinationPath 'windows-deps'
         $env:PATH = "$(Resolve-Path 'windows-deps\go\bin');$env:PATH"
         $kingpinPath = Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\kingpin'
-        git clone --depth=1 --branch fork-2.2.6 https://github.com/namecoin/kingpin.git $kingpinPath
+        git clone --depth=1 https://github.com/alecthomas/kingpin.git $kingpinPath
         Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/namecoin/encaya/archive/refs/heads/master.zip' -OutFile 'windows-deps\encaya-src.zip'
         Expand-Archive -Path 'windows-deps\encaya-src.zip' -DestinationPath 'windows-deps'
         $encayaSource = Get-ChildItem -Path 'windows-deps' -Directory -Filter 'encaya-*' | Select-Object -First 1
