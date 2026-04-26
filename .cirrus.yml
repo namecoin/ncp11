@@ -256,7 +256,7 @@ task:
   install_script:
     - apt-get update
     # bind9-dnsutils contains dig
-    - apt-get install -y dnssec-trigger bind9-dnsutils firefox-esr git openssl python3 libcap-dev
+    - apt-get install -y dnssec-trigger bind9-dnsutils firefox-esr openssl python3 libcap-dev
     # Namecoin Core
     - BITCOIND_URL=$(curl https://www.namecoin.org/download/ | grep x86_64-linux-gnu.tar.gz | grep -v 0.13.99 | grep --only-matching https://.*.tar.gz)
     - BITCOIND_FILENAME=$(basename "$BITCOIND_URL")
@@ -277,9 +277,12 @@ task:
         export PATH=/usr/local/go/bin:$PATH
         export GOPATH=/go
         export GOMODCACHE="$GOPATH/pkg/mod"
-        mkdir -p "$GOMODCACHE"
+        export GOCACHE="$GOPATH/cache"
+        mkdir -p "$GOMODCACHE" "$GOCACHE"
         mkdir -p "$(go env GOPATH)/src/github.com/alecthomas"
-        git clone --depth=1 https://github.com/alecthomas/kingpin.git "$(go env GOPATH)/src/github.com/alecthomas/kingpin"
+        curl -fsSL -o kingpin-src.tar.gz https://github.com/alecthomas/kingpin/archive/refs/heads/master.tar.gz
+        tar -xaf kingpin-src.tar.gz -C "$(go env GOPATH)/src/github.com/alecthomas"
+        mv "$(go env GOPATH)"/src/github.com/alecthomas/kingpin-* "$(go env GOPATH)/src/github.com/alecthomas/kingpin"
         curl -fsSL -o encaya-src.tar.gz https://github.com/namecoin/encaya/archive/refs/heads/master.tar.gz
         tar -xaf encaya-src.tar.gz
         cd encaya-*/
@@ -385,9 +388,13 @@ task:
         $env:PATH = "$(Resolve-Path 'windows-deps\go\bin');$env:PATH"
         $env:GOPATH = Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\gopath'
         $env:GOMODCACHE = Join-Path $env:GOPATH 'pkg\mod'
-        New-Item -ItemType Directory -Path $env:GOMODCACHE -Force | Out-Null
-        $kingpinPath = Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\kingpin'
-        git clone --depth=1 https://github.com/alecthomas/kingpin.git $kingpinPath
+        $env:GOCACHE = Join-Path $env:GOPATH 'cache'
+        New-Item -ItemType Directory -Path $env:GOMODCACHE, $env:GOCACHE -Force | Out-Null
+        $kingpinParent = Join-Path $env:GOPATH 'src\github.com\alecthomas'
+        New-Item -ItemType Directory -Path $kingpinParent -Force | Out-Null
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/alecthomas/kingpin/archive/refs/heads/master.zip' -OutFile 'windows-deps\kingpin-src.zip'
+        Expand-Archive -Path 'windows-deps\kingpin-src.zip' -DestinationPath $kingpinParent
+        $kingpinPath = Get-ChildItem -Path $kingpinParent -Directory -Filter 'kingpin-*' | Select-Object -First 1
         Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/namecoin/encaya/archive/refs/heads/master.zip' -OutFile 'windows-deps\encaya-src.zip'
         Expand-Archive -Path 'windows-deps\encaya-src.zip' -DestinationPath 'windows-deps'
         $encayaSource = Get-ChildItem -Path 'windows-deps' -Directory -Filter 'encaya-*' | Select-Object -First 1
@@ -395,7 +402,7 @@ task:
         if (-not (Test-Path go.mod)) {
           go mod init github.com/namecoin/encaya
         }
-        go mod edit "-replace=gopkg.in/alecthomas/kingpin.v2=$kingpinPath"
+        go mod edit "-replace=gopkg.in/alecthomas/kingpin.v2=$($kingpinPath.FullName)"
         go mod tidy
         go build -o (Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\encaya.exe') .
         go build -o (Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\encayagen.exe') .\encayagen
