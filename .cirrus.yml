@@ -254,7 +254,7 @@ task:
   install_script:
     - apt-get update
     # bind9-dnsutils contains dig
-    - apt-get install -y dnssec-trigger bind9-dnsutils firefox-esr
+    - apt-get install -y dnssec-trigger bind9-dnsutils firefox-esr openssl python3 libcap-dev
     # Namecoin Core
     - BITCOIND_URL=$(curl https://www.namecoin.org/download/ | grep x86_64-linux-gnu.tar.gz | grep -v 0.13.99 | grep --only-matching https://.*.tar.gz)
     - BITCOIND_FILENAME=$(echo $BITCOIND_URL | grep -E --only-matching 'namecoin-nc.*.tar.gz')
@@ -267,10 +267,17 @@ task:
     - tar -xaf ncdns.tar.gz
     - cp -a ncdns--*/* /usr/
     # Encaya
-    - ENCAYA_URL=https://api.cirrus-ci.com/v1/artifact/github/namecoin/encaya/Cross-Compile%20Go%20latest/binaries/dist/encaya--linux_amd64.tar.gz
-    - curl -o encaya.tar.gz $ENCAYA_URL
-    - tar -xaf encaya.tar.gz
-    - cp -a encaya--*/* /usr/
+    - |
+        GO_URL=$(python3 -c 'import json, urllib.request; data = json.load(urllib.request.urlopen("https://go.dev/dl/?mode=json")); print(next("https://go.dev/dl/" + f["filename"] for r in data if r.get("stable") for f in r["files"] if f["os"] == "linux" and f["arch"] == "amd64" and f["kind"] == "archive"))')
+        curl -fsSL "$GO_URL" -o go.tar.gz
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf go.tar.gz
+        export PATH=/usr/local/go/bin:$PATH
+        curl -fsSL -o encaya-src.tar.gz https://github.com/namecoin/encaya/archive/refs/heads/master.tar.gz
+        tar -xaf encaya-src.tar.gz
+        cd encaya-*
+        go build -o /usr/bin/encaya .
+        go build -o /usr/bin/encayagen ./encayagen
     # ncp11
     - NCP11_URL=https://api.cirrus-ci.com/v1/artifact/build/$CIRRUS_BUILD_ID/Compile%20Go%20$GO_VERSION%20linux%20amd64/binaries/dist/ncp11.tar.gz
     - curl -o ncp11.tar.gz $NCP11_URL
@@ -302,6 +309,86 @@ task:
   env:
     GO_VERSION: latest
     MODULES_NAME: ""
+
+task:
+  name: "Functional Tests Windows Go $GO_VERSION"
+  alias: "Functional Tests"
+  compute_engine_instance:
+    image_project: windows-cloud
+    image: family/windows-2022
+    platform: windows
+    cpu: 4
+    memory: 8G
+  install_script:
+    - $ErrorActionPreference = 'Stop'; Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12; Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1')); $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
+    - |
+        $ErrorActionPreference = 'Stop'
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+          try {
+            choco install -y openssl.light unbound
+            break
+          } catch {
+            if ($attempt -eq 3) {
+              throw
+            }
+            Start-Sleep -Seconds 15
+          }
+        }
+
+        $firefoxBinary = 'C:\Program Files\Mozilla Firefox\firefox.exe'
+        if (-not (Test-Path $firefoxBinary)) {
+          $firefoxInstaller = Join-Path $env:TEMP 'firefox-installer.exe'
+
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+              if (Test-Path $firefoxInstaller) {
+                Remove-Item $firefoxInstaller -Force
+              }
+
+              Invoke-WebRequest -UseBasicParsing -Uri 'https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US' -OutFile $firefoxInstaller
+              $installer = Start-Process $firefoxInstaller -ArgumentList '-ms' -Wait -PassThru
+              if ($installer.ExitCode -ne 0 -or -not (Test-Path $firefoxBinary)) {
+                throw "Firefox installer failed with exit code $($installer.ExitCode)"
+              }
+              break
+            } catch {
+              if ($attempt -eq 3) {
+                throw
+              }
+              Start-Sleep -Seconds 15
+            }
+          }
+        }
+    - if (Test-Path windows-deps) { Remove-Item windows-deps -Recurse -Force }
+    - New-Item -ItemType Directory -Path windows-deps | Out-Null
+    - $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri 'https://www.namecoin.org/files/namecoin-core/namecoin-core-22.0/namecoin-nc22.0-win64.zip' -OutFile 'windows-deps\namecoin.zip'
+    - Expand-Archive -Path 'windows-deps\namecoin.zip' -DestinationPath 'windows-deps'
+    - $ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest -UseBasicParsing -Uri 'https://api.cirrus-ci.com/v1/artifact/github/namecoin/ncdns/Cross-Compile%20Go%20latest/binaries/dist/ncdns--windows_amd64.tar.gz' -OutFile 'windows-deps\ncdns.tar.gz'
+    - tar -xf windows-deps\ncdns.tar.gz -C windows-deps; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - |
+        $ErrorActionPreference = 'Stop'
+        $ProgressPreference = 'SilentlyContinue'
+        $goRelease = Invoke-RestMethod -UseBasicParsing -Uri 'https://go.dev/dl/?mode=json' | Where-Object { $_.stable } | Select-Object -First 1
+        $goFile = $goRelease.files | Where-Object { $_.os -eq 'windows' -and $_.arch -eq 'amd64' -and $_.kind -eq 'archive' } | Select-Object -First 1
+        Invoke-WebRequest -UseBasicParsing -Uri "https://go.dev/dl/$($goFile.filename)" -OutFile 'windows-deps\go.zip'
+        Expand-Archive -Path 'windows-deps\go.zip' -DestinationPath 'windows-deps'
+        $env:PATH = "$(Resolve-Path 'windows-deps\go\bin');$env:PATH"
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/namecoin/encaya/archive/refs/heads/master.zip' -OutFile 'windows-deps\encaya-src.zip'
+        Expand-Archive -Path 'windows-deps\encaya-src.zip' -DestinationPath 'windows-deps'
+        $encayaSource = Get-ChildItem -Path 'windows-deps' -Directory -Filter 'encaya-*' | Select-Object -First 1
+        Push-Location $encayaSource.FullName
+        go build -o (Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\encaya.exe') .
+        go build -o (Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\encayagen.exe') .\encayagen
+        Pop-Location
+    - $ncp11Url = "https://api.cirrus-ci.com/v1/artifact/build/$env:CIRRUS_BUILD_ID/Compile%20Go%20$env:GO_VERSION%20windows%20amd64/binaries/dist/ncp11.tar.gz"; Invoke-WebRequest -UseBasicParsing -Uri $ncp11Url -OutFile 'windows-deps\ncp11.tar.gz'
+    - tar -xf windows-deps\ncp11.tar.gz -C windows-deps; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  regtest_script:
+    - powershell.exe -NoLogo -ExecutionPolicy Bypass -File testdata\regtest.ps1; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  depends_on:
+    - "Compile Go $GO_VERSION windows amd64"
+  env:
+    CIRRUS_SHELL: powershell
+    GO_VERSION: latest
 
 # TODO: Add Windows unit tests
 
