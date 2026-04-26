@@ -275,9 +275,14 @@ task:
         rm -rf /usr/local/go
         tar -C /usr/local -xzf go.tar.gz
         export PATH=/usr/local/go/bin:$PATH
+        mkdir -p "$(go env GOPATH)/src/github.com/alecthomas"
+        git clone --depth=1 --branch fork-2.2.6 https://github.com/namecoin/kingpin.git "$(go env GOPATH)/src/github.com/alecthomas/kingpin"
         curl -fsSL -o encaya-src.tar.gz https://github.com/namecoin/encaya/archive/refs/heads/master.tar.gz
         tar -xaf encaya-src.tar.gz
         cd encaya-*/
+        test -f go.mod || go mod init github.com/namecoin/encaya
+        go mod edit -replace gopkg.in/alecthomas/kingpin.v2="$(go env GOPATH)/src/github.com/alecthomas/kingpin"
+        go mod tidy
         go build -o /usr/bin/encaya .
         go build -o /usr/bin/encayagen ./encayagen
     # ncp11
@@ -375,10 +380,17 @@ task:
         Invoke-WebRequest -UseBasicParsing -Uri "https://go.dev/dl/$($goFile.filename)" -OutFile 'windows-deps\go.zip'
         Expand-Archive -Path 'windows-deps\go.zip' -DestinationPath 'windows-deps'
         $env:PATH = "$(Resolve-Path 'windows-deps\go\bin');$env:PATH"
+        $kingpinPath = Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\kingpin'
+        git clone --depth=1 --branch fork-2.2.6 https://github.com/namecoin/kingpin.git $kingpinPath
         Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/namecoin/encaya/archive/refs/heads/master.zip' -OutFile 'windows-deps\encaya-src.zip'
         Expand-Archive -Path 'windows-deps\encaya-src.zip' -DestinationPath 'windows-deps'
         $encayaSource = Get-ChildItem -Path 'windows-deps' -Directory -Filter 'encaya-*' | Select-Object -First 1
         Push-Location $encayaSource.FullName
+        if (-not (Test-Path go.mod)) {
+          go mod init github.com/namecoin/encaya
+        }
+        go mod edit "-replace=gopkg.in/alecthomas/kingpin.v2=$kingpinPath"
+        go mod tidy
         go build -o (Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\encaya.exe') .
         go build -o (Join-Path $env:CIRRUS_WORKING_DIR 'windows-deps\encayagen.exe') .\encayagen
         Pop-Location
