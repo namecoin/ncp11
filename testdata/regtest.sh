@@ -54,7 +54,7 @@ echo "Wait for registration to confirm"
 new_blocks 1
 
 echo "Update testls.bit"
-$bitcoin_cli name_update 'd/testls' '{"ip":"107.152.38.155","map":{"*":{"tls":[[2,1,0,"MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADvxHcjwDYMNfUSTtSIn3VbBC1sOzh/1Fv5T0UzEuLWIE="]]},"sub1":{"map":{"sub2":{"map":{"sub3":{"ip":"107.152.38.155"}}}}},"_tor":{"txt":"dhflg7a7etr77hwt4eerwoovhg7b5bivt2jem4366dt4psgnl5diyiyd.onion"}}}'
+$bitcoin_cli name_update 'd/testls' '{"ip":"107.152.38.155","map":{"*":{"tls":[[2,1,0,"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhEzvBdb7SrZpa9aRdTg1sTkwaaDivh5lzLUlJQEYBsviT1oOMV6n+jX7ghlzd8QxH1bR36ViJhNNvbMKinMq3A=="]]},"sub1":{"map":{"sub2":{"map":{"sub3":{"ip":"107.152.38.155"}}}}},"_tor":{"txt":"dhflg7a7etr77hwt4eerwoovhg7b5bivt2jem4366dt4psgnl5diyiyd.onion"}}}'
 
 echo "Wait for update to confirm"
 new_blocks 1
@@ -72,7 +72,7 @@ echo "Query testls.bit TLS Authoritative via dig"
 dig_output=$(dig -p 5391 @127.0.0.1 TLSA "*.testls.bit")
 echo "$dig_output"
 echo "Checking response correctness"
-tlsa_hex="$(echo 'MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADvxHcjwDYMNfUSTtSIn3VbBC1sOzh/1Fv5T0UzEuLWIE=' | base64 --decode | xxd -u -ps -c 500)"
+tlsa_hex="$(echo 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhEzvBdb7SrZpa9aRdTg1sTkwaaDivh5lzLUlJQEYBsviT1oOMV6n+jX7ghlzd8QxH1bR36ViJhNNvbMKinMq3A==' | base64 --decode | xxd -u -ps -c 500)"
 echo "$dig_output" | sed 's/ //g' | grep "$tlsa_hex"
 
 echo "Query testls.bit IPv4 Recursive via dig"
@@ -85,7 +85,7 @@ echo "Query testls.bit TLS Recursive via dig"
 dig_output=$(dig -p 53 @127.0.0.1 TLSA "*.testls.bit")
 echo "$dig_output"
 echo "Checking response correctness"
-tlsa_hex="$(echo 'MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgADvxHcjwDYMNfUSTtSIn3VbBC1sOzh/1Fv5T0UzEuLWIE=' | base64 --decode | xxd -u -ps -c 500)"
+tlsa_hex="$(echo 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhEzvBdb7SrZpa9aRdTg1sTkwaaDivh5lzLUlJQEYBsviT1oOMV6n+jX7ghlzd8QxH1bR36ViJhNNvbMKinMq3A==' | base64 --decode | xxd -u -ps -c 500)"
 echo "$dig_output" | sed 's/ //g' | grep "$tlsa_hex"
 
 echo "Fetch testls.bit via curl"
@@ -97,8 +97,12 @@ curl http://127.127.127.127/lookup?domain=Namecoin%20Root%20CA | grep -i "BEGIN 
 echo "Fetch TLD CA via curl"
 curl http://127.127.127.127/lookup?domain=.bit%20TLD%20CA | grep -i "BEGIN CERTIFICATE"
 
-echo "Fetch testls.bit CA via curl"
-curl http://127.127.127.127/lookup?domain=testls.bit%20Domain%20AIA%20Parent%20CA | grep -i "BEGIN CERTIFICATE"
+# Disabled until https://github.com/namecoin/encaya/issues/58 is fixed.
+# Encaya's cert cache is keyed only on the CommonName, not the stapled data.
+# This lookup has no stapled data, so the CA it caches would be returned for
+# ncp11's stapled lookup below, and that CA doesn't chain to testls.bit's cert.
+#echo "Fetch testls.bit CA via curl"
+#curl http://127.127.127.127/lookup?domain=testls.bit%20Domain%20AIA%20Parent%20CA | grep -i "BEGIN CERTIFICATE"
 
 echo "Fetch Namecoin.org with stock Firefox"
 testdata/try-firefox-connect.bash www.namecoin.org success "" || testdata/dump-proxy-log-fail.bash
