@@ -5,6 +5,7 @@
 1. Install Go.
 1. Clone this repo.
 1. Configure Go Modules to use the latest experimental Namecoin branches of [pkcs11mod](https://github.com/namecoin/pkcs11mod) and [pkcs11](https://github.com/namecoin/pkcs11) (these will be submitted upstream later).
+    1. CI does this with `bash testdata/prepare_go_module.bash`, which clones pkcs11mod into `../pkcs11mod`.
 1. `CGO_ENABLED=1 go build -buildmode c-shared -o libncp11.so`
     1. If building for Windows or macOS, change the output filename to `ncp11.dll` or `libncp11.dylib`.
 

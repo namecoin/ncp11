@@ -191,10 +191,8 @@ func (b *BackendNamecoinPositive) queryCommonName(name string, stapled map[strin
 	postArgs.Set("domain", name)
 
 	// Plumb stapled data from Subject Serial Number to Encaya
-	if stapled != nil {
-		for stapledKey, stapledValue := range stapled {
-			postArgs.Set(stapledKey, stapledValue)
-		}
+	for stapledKey, stapledValue := range stapled {
+		postArgs.Set(stapledKey, stapledValue)
 	}
 
 	if b.trace && b.traceSensitive {
