@@ -20,15 +20,10 @@ package main
 import (
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
-	"io"
 	"log"
 	"math/big"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/miekg/pkcs11"
 
@@ -100,10 +95,6 @@ func (b *BackendNamecoinRevoke) QuerySubject(subject *pkix.Name) ([]*p11trustmod
 	return []*p11trustmod.CertificateData{}, nil
 }
 
-type RevokeResponse struct {
-	Revoked bool `json:"revoked"`
-}
-
 func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big.Int) ([]*p11trustmod.CertificateData, error) {
 	if issuer == nil || serial == nil {
 		return []*p11trustmod.CertificateData{}, nil
@@ -117,54 +108,21 @@ func (b *BackendNamecoinRevoke) QueryIssuerSerial(issuer *pkix.Name, serial *big
 		log.Printf("ncp11 revoke: PKIX SerialNumber matched handler whitelist, CommonName: %s\n", issuer.CommonName)
 	}
 
-	var netClient = &http.Client{
-		Timeout: time.Second * 10,
+	if b.trace && b.traceSensitive {
+		log.Printf("ncp11 revoke: Querying Encaya for: %s\n", issuer.CommonName)
 	}
-
-	postArgs := url.Values{}
-	postArgs.Set("domain", issuer.CommonName)
 
 	serialHex := serial.Text(16)
 	for len(serialHex) < 2*20 {
 		serialHex = "0" + serialHex
 	}
 
-	postArgs.Set("serhex", serialHex)
-
-	if b.trace && b.traceSensitive {
-		log.Printf("ncp11 revoke: Querying Encaya for: %s\n", issuer.CommonName)
-	}
-
-	// TODO: Use Unix domain socket
-	response, err := netClient.PostForm("http://127.127.127.127/revoked", postArgs)
+	revoked, err := isRevoked(issuer.CommonName, serialHex)
 	if err != nil {
-		log.Printf("ncp11 revoke: Error POSTing to Encaya: %s\n", err)
-		return []*p11trustmod.CertificateData{}, nil
+		return []*p11trustmod.CertificateData{}, err
 	}
 
-	buf, err := io.ReadAll(response.Body)
-	if err != nil {
-		log.Printf("ncp11 revoke: Error reading response from Encaya: %s\n", err)
-		return []*p11trustmod.CertificateData{}, nil
-	}
-
-	err = response.Body.Close()
-	if err != nil {
-		log.Printf("ncp11 revoke: Error closing response from Encaya: %s\n", err)
-		return []*p11trustmod.CertificateData{}, nil
-	}
-
-	var responseParsed RevokeResponse
-
-	err = json.Unmarshal(buf, &responseParsed)
-	if err != nil {
-		log.Printf("ncp11 revoke: Error unmarshaling response from Encaya: %s\n", err)
-		return []*p11trustmod.CertificateData{}, nil
-	}
-
-	isRevoked := responseParsed.Revoked
-
-	if !isRevoked {
+	if !revoked {
 		if b.trace && b.traceSensitive {
 			log.Printf("ncp11 revoke: Unrevoking cert serial 0x%s, CommonName: %s\n", serialHex, issuer.CommonName)
 		}
