@@ -18,6 +18,7 @@
 package main
 
 import (
+	"encoding/json"
 	"encoding/pem"
 	"io"
 	"log"
@@ -75,4 +76,47 @@ func lookupCerts(name string, stapled map[string]string) ([][]byte, error) {
 	}
 
 	return resultCerts, nil
+}
+
+type RevokeResponse struct {
+	Revoked bool `json:"revoked"`
+}
+
+func isRevoked(commonName, serialHex string) (bool, error) {
+	var netClient = &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	postArgs := url.Values{}
+	postArgs.Set("domain", commonName)
+	postArgs.Set("serhex", serialHex)
+
+	// TODO: Use Unix domain socket
+	response, err := netClient.PostForm("http://127.127.127.127/revoked", postArgs)
+	if err != nil {
+		log.Printf("ncp11 revoke: Error POSTing to Encaya: %s\n", err)
+		return false, nil
+	}
+
+	buf, err := io.ReadAll(response.Body)
+	if err != nil {
+		log.Printf("ncp11 revoke: Error reading response from Encaya: %s\n", err)
+		return false, nil
+	}
+
+	err = response.Body.Close()
+	if err != nil {
+		log.Printf("ncp11 revoke: Error closing response from Encaya: %s\n", err)
+		return false, nil
+	}
+
+	var responseParsed RevokeResponse
+
+	err = json.Unmarshal(buf, &responseParsed)
+	if err != nil {
+		log.Printf("ncp11 revoke: Error unmarshaling response from Encaya: %s\n", err)
+		return false, nil
+	}
+
+	return responseParsed.Revoked, nil
 }
