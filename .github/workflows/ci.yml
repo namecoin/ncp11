@@ -111,6 +111,7 @@ jobs:
           fi
           mkdir -p dist
           CGO_ENABLED=1 go build -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
+          CGO_ENABLED=1 go build -buildmode c-shared -tags "ncp11_encaya_embedded" -o dist/${SO_PREFIX}ncp11+encaya.$SO_EXT
       - name: Dist
         run: |
           SO_EXT=so
@@ -149,6 +150,7 @@ jobs:
           SO_EXT=dylib
           mkdir -p dist
           CGO_ENABLED=1 go build -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
+          CGO_ENABLED=1 go build -buildmode c-shared -tags "ncp11_encaya_embedded" -o dist/${SO_PREFIX}ncp11+encaya.$SO_EXT
       - name: Dist
         run: |
           SO_EXT=dylib
