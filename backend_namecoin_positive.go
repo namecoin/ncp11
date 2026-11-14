@@ -23,15 +23,10 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
-	"io"
 	"log"
 	"math/big"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/miekg/pkcs11"
 
@@ -183,55 +178,19 @@ func (b *BackendNamecoinPositive) queryPkixName(name *pkix.Name) ([]*p11trustmod
 }
 
 func (b *BackendNamecoinPositive) queryCommonName(name string, stapled map[string]string) ([]*p11trustmod.CertificateData, error) {
-	var netClient = &http.Client{
-		Timeout: time.Second * 10,
-	}
-
-	postArgs := url.Values{}
-	postArgs.Set("domain", name)
-
-	// Plumb stapled data from Subject Serial Number to Encaya
-	for stapledKey, stapledValue := range stapled {
-		postArgs.Set(stapledKey, stapledValue)
-	}
-
 	if b.trace && b.traceSensitive {
 		log.Printf("ncp11 positive: Querying Encaya for: %s\n", name)
 	}
 
-	// TODO: Use Unix domain socket
-	response, err := netClient.PostForm("http://127.127.127.127/lookup", postArgs)
+	certsBytes, err := lookupCerts(name, stapled)
 	if err != nil {
-		log.Printf("ncp11 positive: Error POSTing to Encaya: %s\n", err)
-		return []*p11trustmod.CertificateData{}, nil
-	}
-
-	buf, err := io.ReadAll(response.Body)
-	if err != nil {
-		log.Printf("ncp11 positive: Error reading response from Encaya: %s\n", err)
-		return []*p11trustmod.CertificateData{}, nil
-	}
-
-	err = response.Body.Close()
-	if err != nil {
-		log.Printf("ncp11 positive: Error closing response from Encaya: %s\n", err)
-		return []*p11trustmod.CertificateData{}, nil
+		return []*p11trustmod.CertificateData{}, err
 	}
 
 	results := []*p11trustmod.CertificateData{}
 
-	var block *pem.Block
-	for {
-		block, buf = pem.Decode(buf)
-		if block == nil {
-			break
-		}
-
-		if block.Type != "CERTIFICATE" {
-			continue
-		}
-
-		cert, err := x509.ParseCertificate(block.Bytes)
+	for _, certBytes := range certsBytes {
+		cert, err := x509.ParseCertificate(certBytes)
 		if err != nil {
 			continue
 		}
