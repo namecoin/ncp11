@@ -109,7 +109,7 @@ task:
     - fi
     - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
     - mkdir -p dist
-    - CGO_ENABLED=1 go build -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
+    - CGO_ENABLED=1 go build -v -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
   dist_script:
     - SO_PREFIX=lib
     - SO_EXT=so
@@ -177,7 +177,7 @@ task:
     - SO_EXT=dylib
     - cd $(go env GOPATH)/src/github.com/"$CIRRUS_REPO_FULL_NAME"
     - mkdir -p dist
-    - CGO_ENABLED=1 go build -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
+    - CGO_ENABLED=1 go build -v -buildmode c-shared -o dist/${SO_PREFIX}ncp11.$SO_EXT
   dist_script:
     - SO_PREFIX=lib
     - SO_EXT=dylib
